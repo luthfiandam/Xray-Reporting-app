@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { compressImage } from '../utils/imageCompressor';
+import { applyWatermark, buildDriveFolderPath } from '../utils/watermark';
 import { CorrectiveReport, Equipment, EquipmentType, Location } from '../types';
 import { getLocalDateString } from '../utils/technicianSchedule';
+import { formatIndonesianDate, formatTimeRange } from '../utils/timeFormat';
 import {
   Wrench,
   Plus,
@@ -27,6 +29,8 @@ interface CorrectiveViewProps {
   locations: Location[];
   onAddCorrective: (report: Omit<CorrectiveReport, 'id'>) => void;
   technicianNames: string[];
+  shift?: string;
+  operationalDate?: string;
 }
 
 export const CorrectiveView: React.FC<CorrectiveViewProps> = ({
@@ -36,6 +40,8 @@ export const CorrectiveView: React.FC<CorrectiveViewProps> = ({
   locations,
   onAddCorrective,
   technicianNames,
+  shift = 'Pagi',
+  operationalDate = '',
 }) => {
   const [showForm, setShowForm] = useState(false);
 
@@ -103,13 +109,27 @@ export const CorrectiveView: React.FC<CorrectiveViewProps> = ({
     const availableSlots = 10 - photos.length;
     const selectedFiles: File[] = fileList.slice(0, availableSlots);
 
+    const eq = equipments.find((item) => item.id === Number(equipmentId));
+    const loc = locations.find((l) => l.id === eq?.location_id);
+    const eqType = equipmentTypes.find((t) => t.id === eq?.equipment_type_id);
+
+    const watermarkOpts = {
+      equipmentName: eq?.name || 'Equipment',
+      locationName: loc?.name || '',
+      equipmentType: eqType?.name || '',
+      operationalDate: operationalDate || getLocalDateString(new Date()),
+      time: startTime || '08:00',
+      shift: shift,
+      reportType: 'CORRECTIVE' as const,
+    };
+
     try {
-      const compressedPhotos = await Promise.all(
-        selectedFiles.map((file: File) => compressImage(file, 1600, 0.82))
+      const watermarkedPhotos = await Promise.all(
+        selectedFiles.map((file: File) => applyWatermark(file, watermarkOpts, 1600, 0.85))
       );
-      setPhotos((prev) => [...prev, ...compressedPhotos].slice(0, 10));
+      setPhotos((prev) => [...prev, ...watermarkedPhotos].slice(0, 10));
     } catch (err) {
-      console.error('Corrective photo compression error:', err);
+      console.error('Corrective photo watermark/compression error:', err);
     }
   };
 
@@ -174,7 +194,7 @@ export const CorrectiveView: React.FC<CorrectiveViewProps> = ({
 
     return `Corrective Maintenance
 Tanggal : ${dateFormatted}
-Jam : ${data.startTime} - ${data.endTime} WIB
+Jam : ${formatTimeRange(data.startTime, data.endTime)}
 
 Teknisi: 
 ${techListFormatted}
@@ -202,7 +222,19 @@ Notes : ${data.notes || '-'}`;
       '0'
     )}`;
 
-    const newReport: Omit<CorrectiveReport, 'id'> = {
+    const loc = locations.find((l) => l.id === eq?.location_id);
+    const eqType = equipmentTypes.find((t) => t.id === eq?.equipment_type_id);
+
+    const driveFolderPath = buildDriveFolderPath({
+      reportType: 'CORRECTIVE',
+      operationalDate: dateStr,
+      shift: shift,
+      equipmentType: eqType?.name || 'EQUIPMENT',
+      locationName: loc?.name || 'LOCATION',
+      equipmentName: eq?.name || 'Equipment',
+    });
+
+    const newReport: Omit<CorrectiveReport, 'id'> & { folder_path?: string } = {
       corrective_code: code,
       corrective_date: dateStr,
       equipment_id: Number(equipmentId),
@@ -218,6 +250,7 @@ Notes : ${data.notes || '-'}`;
       created_by: selectedTechs.join(', '),
       created_at: `${dateStr} ${startTime}`,
       evidences: photos,
+      folder_path: driveFolderPath,
     };
 
     onAddCorrective(newReport);
@@ -645,7 +678,7 @@ Notes : ${data.notes || '-'}`;
 
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-slate-400 font-medium">
-                        {report.created_at}
+                        {formatIndonesianDate(report.corrective_date, { shortMonth: true })} • {formatTimeRange(report.start_time, report.end_time)}
                       </span>
                       <span
                         className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${

@@ -5,6 +5,5 @@ coverage/
 .DS_Store
 *.log
 .env*
-.env.local
 !.env.example
 google_tokens.json

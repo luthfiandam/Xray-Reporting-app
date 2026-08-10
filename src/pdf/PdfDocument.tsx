@@ -9,6 +9,7 @@ import {
 } from '@react-pdf/renderer';
 import { StructuredReportData } from '../types';
 import { logoBase64 } from '../logoBase64';
+import { formatTimeRange } from '../utils/timeFormat';
 
 export interface PdfRowData {
   kind: 'preventive' | 'corrective';
@@ -443,7 +444,7 @@ const INTERVAL_NAMES: Record<number, string> = {
 };
 
 export const ShiftReportPdfDocument: React.FC<ReportPdfProps> = ({ structuredData, targetFrequencyId }) => {
-  const defaultTimeStr = `${structuredData.start_time || '08.20'} s/d ${structuredData.end_time || '10.00'} WIB`;
+  const defaultTimeStr = formatTimeRange(structuredData.start_time, structuredData.end_time);
 
   const preventivePdfRows: PdfRowData[] = structuredData.entries_by_type.flatMap((group) =>
     group.entries

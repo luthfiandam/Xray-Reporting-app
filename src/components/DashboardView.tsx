@@ -6,6 +6,7 @@ import {
   PreventiveSession,
   ChecklistFrequency,
 } from '../types';
+import { formatTimeShort } from '../utils/timeFormat';
 import {
   PlusCircle,
   FileText,
@@ -263,7 +264,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         <p className="text-xs text-slate-500">
                           {isDone ? (
                             <>
-                              Submit jam {entry.submitted_at} WIB • Mode{' '}
+                              Submit jam {formatTimeShort(entry.submitted_at)} • Mode{' '}
                               <strong className="text-slate-700">
                                 {entry.view_type === 'dual' ? 'Dual View' : 'Single View'}
                               </strong>

@@ -1,4 +1,4 @@
-import { PreventiveEntry, CorrectiveReport } from '../types';
+import { PreventiveEntry, CorrectiveReport, CloudDataset } from '../types';
 
 export interface GasApiResponse<T = any> {
   success: boolean;
@@ -75,17 +75,28 @@ export async function checkHealth(): Promise<GasApiResponse> {
 }
 
 /**
+ * Fetches available Datasets/Workspaces from Google Sheets.
+ */
+export async function fetchDatasets(): Promise<GasApiResponse<CloudDataset[]>> {
+  return callGasApi<CloudDataset[]>({
+    action: 'getDatasets',
+  });
+}
+
+/**
  * Fetches Preventive Records from Google Sheets.
- * Optionally filtered by operational date and shift.
+ * Optionally filtered by operational date, shift, and datasetId.
  */
 export async function fetchPreventiveRecords(
   operationalDate?: string,
-  shift?: string
+  shift?: string,
+  datasetId?: string
 ): Promise<GasApiResponse<PreventiveEntry[]>> {
   return callGasApi<PreventiveEntry[]>({
     action: 'getPreventiveRecords',
     operationalDate,
     shift,
+    datasetId,
   });
 }
 
@@ -103,16 +114,18 @@ export async function savePreventiveRecord(
 
 /**
  * Fetches Corrective Records from Google Sheets.
- * Optionally filtered by operational date and shift.
+ * Optionally filtered by operational date, shift, and datasetId.
  */
 export async function fetchCorrectiveRecords(
   operationalDate?: string,
-  shift?: string
+  shift?: string,
+  datasetId?: string
 ): Promise<GasApiResponse<CorrectiveReport[]>> {
   return callGasApi<CorrectiveReport[]>({
     action: 'getCorrectiveRecords',
     operationalDate,
     shift,
+    datasetId,
   });
 }
 

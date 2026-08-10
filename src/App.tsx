@@ -91,10 +91,27 @@ export default function App() {
   });
 
   // Cloud Sync State
+  const [activeDatasetId, setActiveDatasetId] = useState<string>(() => {
+    try {
+      return localStorage.getItem('nti_active_dataset') || 'default';
+    } catch (err) {
+      return 'default';
+    }
+  });
+
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline' | 'error'>(
     isCloudConfigured() ? 'synced' : 'offline'
   );
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+
+  // Sync active dataset choice to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('nti_active_dataset', activeDatasetId);
+    } catch (err) {
+      console.error('Error saving active dataset to localStorage:', err);
+    }
+  }, [activeDatasetId]);
 
   // Sync preventive entries to localStorage
   useEffect(() => {
@@ -115,7 +132,8 @@ export default function App() {
   }, [correctiveReports]);
 
   // Cloud Synchronize Handler (Fetch & Merge)
-  const syncFromCloud = useCallback(async () => {
+  const syncFromCloud = useCallback(async (targetDatasetId?: string) => {
+    const currentDs = targetDatasetId || activeDatasetId;
     if (!isCloudConfigured()) {
       setSyncStatus('offline');
       return;
@@ -124,15 +142,18 @@ export default function App() {
     setSyncStatus('syncing');
     try {
       const [prevRes, corrRes] = await Promise.all([
-        fetchPreventiveRecords(),
-        fetchCorrectiveRecords(),
+        fetchPreventiveRecords(undefined, undefined, currentDs),
+        fetchCorrectiveRecords(undefined, undefined, currentDs),
       ]);
 
       if (prevRes.success && Array.isArray(prevRes.data)) {
         setPreventiveEntries((localEntries) => {
-          const merged = [...localEntries];
-          for (const cloudRec of prevRes.data!) {
-            // Unique tuple match: equipment_id + checklist_frequency_id + period_key + shift
+          const cloudRecords = prevRes.data!;
+          const otherDsEntries = localEntries.filter((e) => (e.dataset_id || 'default') !== currentDs);
+          const currentDsEntries = localEntries.filter((e) => (e.dataset_id || 'default') === currentDs);
+
+          const merged = [...currentDsEntries];
+          for (const cloudRec of cloudRecords) {
             const idx = merged.findIndex(
               (e) =>
                 e.equipment_id === cloudRec.equipment_id &&
@@ -144,20 +165,24 @@ export default function App() {
               const localUpdated = merged[idx].updated_at || '';
               const cloudUpdated = cloudRec.updated_at || '';
               if (!localUpdated || cloudUpdated >= localUpdated) {
-                merged[idx] = { ...merged[idx], ...cloudRec };
+                merged[idx] = { ...merged[idx], ...cloudRec, dataset_id: currentDs };
               }
             } else {
-              merged.push(cloudRec);
+              merged.push({ ...cloudRec, dataset_id: currentDs });
             }
           }
-          return merged;
+          return [...otherDsEntries, ...merged];
         });
       }
 
       if (corrRes.success && Array.isArray(corrRes.data)) {
         setCorrectiveReports((localReports) => {
-          const merged = [...localReports];
-          for (const cloudReport of corrRes.data!) {
+          const cloudReports = corrRes.data!;
+          const otherDsReports = localReports.filter((r) => (r.dataset_id || 'default') !== currentDs);
+          const currentDsReports = localReports.filter((r) => (r.dataset_id || 'default') === currentDs);
+
+          const merged = [...currentDsReports];
+          for (const cloudReport of cloudReports) {
             const idx = merged.findIndex(
               (r) =>
                 r.id === cloudReport.id ||
@@ -167,13 +192,13 @@ export default function App() {
               const localUpdated = merged[idx].updated_at || '';
               const cloudUpdated = cloudReport.updated_at || '';
               if (!localUpdated || cloudUpdated >= localUpdated) {
-                merged[idx] = { ...merged[idx], ...cloudReport };
+                merged[idx] = { ...merged[idx], ...cloudReport, dataset_id: currentDs };
               }
             } else {
-              merged.push(cloudReport);
+              merged.push({ ...cloudReport, dataset_id: currentDs });
             }
           }
-          return merged;
+          return [...otherDsReports, ...merged];
         });
       }
 
@@ -183,7 +208,14 @@ export default function App() {
       console.warn('Sync from cloud failed:', err);
       setSyncStatus('error');
     }
-  }, []);
+  }, [activeDatasetId]);
+
+  // Switch Active Dataset Handler
+  const handleSwitchDataset = (newDsId: string) => {
+    const cleanDsId = newDsId.trim() || 'default';
+    setActiveDatasetId(cleanDsId);
+    syncFromCloud(cleanDsId);
+  };
 
   // Initial Sync on Mount and when shift/date changes
   useEffect(() => {
@@ -249,6 +281,7 @@ export default function App() {
     const fullEntry: PreventiveEntry = {
       ...entry,
       id: (entry as any).id || Date.now(),
+      dataset_id: entry.dataset_id || activeDatasetId,
       operational_date: entry.operational_date || currentSession.operational_date,
       shift: entry.shift || currentSession.shift,
       created_at: (entry as any).created_at || now,
@@ -320,6 +353,7 @@ export default function App() {
     const newReport: CorrectiveReport = {
       ...report,
       id: (report as any).id || Date.now(),
+      dataset_id: report.dataset_id || activeDatasetId,
       corrective_date: report.corrective_date || currentSession.operational_date,
       shift: report.shift || currentSession.shift,
       created_at: (report as any).created_at || now,
@@ -435,14 +469,22 @@ export default function App() {
     setLocations((prev) => [...prev, newLoc]);
   };
 
+  // Active Dataset Filtered Records
+  const activePreventiveEntries = preventiveEntries.filter(
+    (e) => (e.dataset_id || 'default') === activeDatasetId
+  );
+  const activeCorrectiveReports = correctiveReports.filter(
+    (r) => (r.dataset_id || 'default') === activeDatasetId
+  );
+
   // Structured Report Builder Data
   const structuredReportData = buildStructuredReportData(
     currentSession,
-    preventiveEntries,
+    activePreventiveEntries,
     equipments,
     equipmentTypes,
     technicians,
-    correctiveReports,
+    activeCorrectiveReports,
     locations
   );
 
@@ -472,7 +514,8 @@ export default function App() {
         onOpenSupervisorLogin={() => setIsSupervisorLoginOpen(true)}
         syncStatus={syncStatus}
         lastSyncTime={lastSyncTime}
-        onManualSync={syncFromCloud}
+        onManualSync={() => syncFromCloud()}
+        activeDatasetId={activeDatasetId}
       />
 
       {/* Main Views Layout */}
@@ -483,7 +526,7 @@ export default function App() {
             <DashboardView
               equipments={equipments}
               equipmentTypes={equipmentTypes}
-              preventiveEntries={preventiveEntries}
+              preventiveEntries={activePreventiveEntries}
               currentSession={currentSession}
               frequencies={frequencies}
               onStartPreventive={(eqId) => {
@@ -501,9 +544,10 @@ export default function App() {
             <PreventiveView
               equipments={equipments}
               equipmentTypes={equipmentTypes}
+              locations={locations}
               frequencies={frequencies}
               checklistItems={checklistItems}
-              preventiveEntries={preventiveEntries}
+              preventiveEntries={activePreventiveEntries}
               preSelectedEquipmentId={preSelectedEquipmentId}
               onSubmitEntry={handleSubmitPreventiveEntry}
               onBackToDashboard={() => setActiveTab('dashboard')}
@@ -515,12 +559,14 @@ export default function App() {
 
           {activeTab === 'corrective' && (
             <CorrectiveView
-              correctiveReports={correctiveReports}
+              correctiveReports={activeCorrectiveReports}
               equipments={equipments}
               equipmentTypes={equipmentTypes}
               locations={locations}
               onAddCorrective={handleAddCorrective}
               technicianNames={technicianNames}
+              shift={currentSession.shift}
+              operationalDate={currentSession.operational_date}
             />
           )}
 
@@ -537,6 +583,8 @@ export default function App() {
               checklistItems={checklistItems}
               onAddEquipment={handleAddEquipment}
               onAddLocation={handleAddLocation}
+              activeDatasetId={activeDatasetId}
+              onSwitchDataset={handleSwitchDataset}
             />
           )}
         </main>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Role, ShiftType } from '../types';
+import { formatIndonesianDate } from '../utils/timeFormat';
 import {
   LayoutDashboard,
   CheckSquare,
@@ -32,6 +33,7 @@ interface SidebarProps {
   syncStatus?: 'synced' | 'syncing' | 'offline' | 'error';
   lastSyncTime?: string | null;
   onManualSync?: () => void;
+  activeDatasetId?: string;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -47,6 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   syncStatus = 'synced',
   lastSyncTime = null,
   onManualSync,
+  activeDatasetId = 'default',
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -165,7 +168,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-200/60 font-medium">
               <span>Shift {shift}</span>
-              <span>{operationalDate}</span>
+              <span>{formatIndonesianDate(operationalDate)}</span>
             </div>
 
             {/* Cloud Sync Status Indicator */}
@@ -203,6 +206,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <RefreshCw className="w-3 h-3" />
                 </button>
               )}
+            </div>
+
+            {/* Active Workspace / Dataset Indicator */}
+            <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[10px]">
+              <span className="text-slate-400 font-medium">Dataset:</span>
+              <span className="font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 truncate max-w-[120px]" title={activeDatasetId}>
+                {activeDatasetId === 'default' ? 'Default (Existing)' : activeDatasetId}
+              </span>
             </div>
           </div>
         </div>

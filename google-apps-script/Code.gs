@@ -16,7 +16,110 @@
 
 const PREVENTIVE_TAB = "Preventive_Records";
 const CORRECTIVE_TAB = "Corrective_Records";
-const DRIVE_ROOT_FOLDER = "X-Ray Reporting App";
+const DRIVE_ROOT_FOLDER = "foto";
+
+// Helper for cleaning file & folder names
+function sanitizeFileName(str) {
+  if (!str) return "";
+  return String(str).replace(/[\\/:*?"<>|#%&{}]/g, "").replace(/\s+/g, " ").trim();
+}
+
+// Generate Standardized Filename: "Lokasi Equipment_JJMM_TTGGBBYY"
+function generateDriveFileName(locationOrEquipment, timeStr, dateStr, index) {
+  var sanitized = sanitizeFileName(locationOrEquipment) || "Equipment";
+
+  var hhmm = "";
+  if (timeStr) {
+    var digits = String(timeStr).replace(/\D/g, "");
+    if (digits.length >= 4) {
+      hhmm = digits.substring(0, 4);
+    } else if (digits.length === 2) {
+      hhmm = digits + "00";
+    }
+  }
+  if (!hhmm) {
+    var now = new Date();
+    hhmm = ("0" + now.getHours()).slice(-2) + ("0" + now.getMinutes()).slice(-2);
+  }
+
+  var ddmmyy = "";
+  if (dateStr && dateStr.indexOf("-") !== -1) {
+    var parts = dateStr.split("-");
+    if (parts.length === 3) {
+      ddmmyy = ("0" + parts[2]).slice(-2) + ("0" + parts[1]).slice(-2) + parts[0].substring(2);
+    }
+  }
+  if (!ddmmyy) {
+    var now = new Date();
+    ddmmyy = ("0" + now.getDate()).slice(-2) + ("0" + (now.getMonth() + 1)).slice(-2) + String(now.getFullYear()).substring(2);
+  }
+
+  var sfx = (typeof index === "number" && index >= 0) ? ("_" + (index + 1)) : "";
+  return sanitized + "_" + hhmm + "_" + ddmmyy + sfx + ".jpg";
+}
+
+// Build Preventive Folder Path: foto/{CategoryFolder}/{YYYY}/{MM. NamaBulan YYYY}/{DD NamaBulan}/{Shift}/{Jenis Equipment} - {Lokasi Equipment}
+function buildPreventiveFolderPath(record) {
+  if (record && record.folder_path) {
+    return record.folder_path;
+  }
+
+  var dateStr = record.operational_date || new Date().toISOString().split("T")[0];
+  var dateParts = dateStr.split("-");
+  var year = dateParts[0] || "2026";
+  var monthNum = dateParts[1] || "01";
+  var dayNum = dateParts[2] || "01";
+
+  var monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+  var mIdx = parseInt(monthNum, 10) - 1;
+  var monthName = (mIdx >= 0 && mIdx < 12) ? monthNames[mIdx] : "Januari";
+
+  var categoryFolder = "1. Foto Laporan Harian";
+  var freq = String(record.checklist_frequency_name || "").toLowerCase();
+  if (freq.indexOf("minggu") !== -1) categoryFolder = "2. Foto Laporan Mingguan";
+  else if (freq.indexOf("bulan") !== -1) categoryFolder = "3. Foto Laporan Bulanan";
+  else if (freq.indexOf("triwulan") !== -1) categoryFolder = "4. Foto Laporan Triwulan";
+  else if (freq.indexOf("semester") !== -1) categoryFolder = "5. Foto Laporan Semesteran";
+  else if (freq.indexOf("tahun") !== -1) categoryFolder = "6. Foto Laporan Tahunan";
+
+  var monthFolder = monthNum + ". " + monthName + " " + year;
+  var dayFolder = dayNum + " " + monthName;
+  var shiftFolder = record.shift || "Pagi";
+
+  var eqType = sanitizeFileName(record.equipment_type || "EQUIPMENT");
+  var eqLoc = sanitizeFileName(record.location_name || record.equipment_name || record.equipment_code || "LOCATION");
+  var eqLocFolder = eqType + " - " + eqLoc;
+
+  return DRIVE_ROOT_FOLDER + "/" + categoryFolder + "/" + year + "/" + monthFolder + "/" + dayFolder + "/" + shiftFolder + "/" + eqLocFolder;
+}
+
+// Build Corrective Folder Path: foto/1.1 Foto Laporan Corrective/{YYYY}/{MM. NamaBulan YYYY}/{DD NamaBulan}/{Shift}/{Jenis Equipment} - {Lokasi Equipment}
+function buildCorrectiveFolderPath(record) {
+  if (record && record.folder_path) {
+    return record.folder_path;
+  }
+
+  var dateStr = record.corrective_date || record.operational_date || new Date().toISOString().split("T")[0];
+  var dateParts = dateStr.split("-");
+  var year = dateParts[0] || "2026";
+  var monthNum = dateParts[1] || "01";
+  var dayNum = dateParts[2] || "01";
+
+  var monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+  var mIdx = parseInt(monthNum, 10) - 1;
+  var monthName = (mIdx >= 0 && mIdx < 12) ? monthNames[mIdx] : "Januari";
+
+  var categoryFolder = "1.1 Foto Laporan Corrective";
+  var monthFolder = monthNum + ". " + monthName + " " + year;
+  var dayFolder = dayNum + " " + monthName;
+  var shiftFolder = record.shift || "Pagi";
+
+  var eqType = sanitizeFileName(record.equipment_type || "EQUIPMENT");
+  var eqLoc = sanitizeFileName(record.location_name || record.equipment_name || "LOCATION");
+  var eqLocFolder = eqType + " - " + eqLoc;
+
+  return DRIVE_ROOT_FOLDER + "/" + categoryFolder + "/" + year + "/" + monthFolder + "/" + dayFolder + "/" + shiftFolder + "/" + eqLocFolder;
+}
 
 function doPost(e) {
   try {
@@ -32,12 +135,14 @@ function doPost(e) {
         message: "Google Apps Script API is active",
         data: { timestamp: new Date().toISOString() }
       };
+    } else if (action === "getDatasets") {
+      result = getDatasets();
     } else if (action === "getPreventiveRecords") {
-      result = getPreventiveRecords(payload.operationalDate, payload.shift);
+      result = getPreventiveRecords(payload.operationalDate, payload.shift, payload.datasetId);
     } else if (action === "savePreventiveRecord") {
       result = savePreventiveRecord(payload.record);
     } else if (action === "getCorrectiveRecords") {
-      result = getCorrectiveRecords(payload.operationalDate, payload.shift);
+      result = getCorrectiveRecords(payload.operationalDate, payload.shift, payload.datasetId);
     } else if (action === "saveCorrectiveRecord") {
       result = saveCorrectiveRecord(payload.record);
     } else if (action === "uploadPhoto") {
@@ -137,10 +242,99 @@ function saveImageToDrive(base64Data, folderPath, fileName) {
   }
 }
 
+// DATASET & WORKSPACE MANAGEMENT
+function ensureDatasetColumnExists(sheet) {
+  var data = sheet.getDataRange().getValues();
+  if (data.length === 0) return;
+  var headers = data[0];
+  if (headers.indexOf("dataset_id") === -1) {
+    sheet.insertColumnAfter(1); // Insert dataset_id as column 2
+    sheet.getRange(1, 2).setValue("dataset_id").setFontWeight("bold").setBackground("#e2e8f0");
+  }
+}
+
+function getDatasets() {
+  var datasetsMap = {};
+  datasetsMap["default"] = {
+    id: "default",
+    name: "Default (Data Existing)",
+    preventive_count: 0,
+    corrective_count: 0,
+    last_updated: ""
+  };
+
+  // Scan Preventive Records
+  var prevSheet = getPreventiveSheet();
+  var prevData = prevSheet.getDataRange().getValues();
+  if (prevData.length > 1) {
+    var pHeaders = prevData[0];
+    var pDsIdx = pHeaders.indexOf("dataset_id");
+    var pUpdatedIdx = pHeaders.indexOf("updated_at");
+
+    for (var i = 1; i < prevData.length; i++) {
+      var row = prevData[i];
+      if (!row[0]) continue;
+      var dsId = pDsIdx !== -1 ? (String(row[pDsIdx] || "").trim() || "default") : "default";
+      var updatedAt = pUpdatedIdx !== -1 ? String(row[pUpdatedIdx] || "") : "";
+
+      if (!datasetsMap[dsId]) {
+        datasetsMap[dsId] = {
+          id: dsId,
+          name: dsId,
+          preventive_count: 0,
+          corrective_count: 0,
+          last_updated: ""
+        };
+      }
+      datasetsMap[dsId].preventive_count++;
+      if (updatedAt && (!datasetsMap[dsId].last_updated || updatedAt > datasetsMap[dsId].last_updated)) {
+        datasetsMap[dsId].last_updated = updatedAt;
+      }
+    }
+  }
+
+  // Scan Corrective Records
+  var corrSheet = getCorrectiveSheet();
+  var corrData = corrSheet.getDataRange().getValues();
+  if (corrData.length > 1) {
+    var cHeaders = corrData[0];
+    var cDsIdx = cHeaders.indexOf("dataset_id");
+    var cUpdatedIdx = cHeaders.indexOf("updated_at");
+
+    for (var j = 1; j < corrData.length; j++) {
+      var cRow = corrData[j];
+      if (!cRow[0]) continue;
+      var cDsId = cDsIdx !== -1 ? (String(cRow[cDsIdx] || "").trim() || "default") : "default";
+      var cUpdatedAt = cUpdatedIdx !== -1 ? String(cRow[cUpdatedIdx] || "") : "";
+
+      if (!datasetsMap[cDsId]) {
+        datasetsMap[cDsId] = {
+          id: cDsId,
+          name: cDsId,
+          preventive_count: 0,
+          corrective_count: 0,
+          last_updated: ""
+        };
+      }
+      datasetsMap[cDsId].corrective_count++;
+      if (cUpdatedAt && (!datasetsMap[cDsId].last_updated || cUpdatedAt > datasetsMap[cDsId].last_updated)) {
+        datasetsMap[cDsId].last_updated = cUpdatedAt;
+      }
+    }
+  }
+
+  var datasetsList = [];
+  for (var key in datasetsMap) {
+    datasetsList.push(datasetsMap[key]);
+  }
+
+  return { success: true, data: datasetsList };
+}
+
 // PREVENTIVE RECORDS
 function getPreventiveSheet() {
   var headers = [
-    "record_id", "equipment_id", "equipment_code", "equipment_name", "equipment_type",
+    "record_id", "dataset_id", "equipment_id", "equipment_code", "equipment_name", "equipment_type",
     "checklist_frequency_id", "period_key", "operational_date", "shift",
     "preventive_session_id", "sequence", "submitted_at", "submitted_by_technician_ids",
     "status", "notes", "checklist_results", "measurements", "evidences", "created_at", "updated_at"
@@ -148,7 +342,7 @@ function getPreventiveSheet() {
   return getOrCreateSheet(PREVENTIVE_TAB, headers);
 }
 
-function getPreventiveRecords(operationalDate, shift) {
+function getPreventiveRecords(operationalDate, shift, targetDatasetId) {
   var sheet = getPreventiveSheet();
   var data = sheet.getDataRange().getValues();
   if (data.length <= 1) {
@@ -157,10 +351,15 @@ function getPreventiveRecords(operationalDate, shift) {
 
   var headers = data[0];
   var records = [];
+  var activeDs = (targetDatasetId && String(targetDatasetId).trim()) ? String(targetDatasetId).trim() : "default";
+  var dsColIdx = headers.indexOf("dataset_id");
 
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
     if (!row[0]) continue;
+
+    var rowDsId = dsColIdx !== -1 ? (String(row[dsColIdx] || "").trim() || "default") : "default";
+    if (rowDsId !== activeDs) continue;
 
     var recOpDate = String(row[headers.indexOf("operational_date")] || "");
     var recShift = String(row[headers.indexOf("shift")] || "");
@@ -171,6 +370,7 @@ function getPreventiveRecords(operationalDate, shift) {
     try {
       var record = {
         id: Number(row[headers.indexOf("record_id")]),
+        dataset_id: rowDsId,
         equipment_id: Number(row[headers.indexOf("equipment_id")]),
         checklist_frequency_id: Number(row[headers.indexOf("checklist_frequency_id")]),
         period_key: String(row[headers.indexOf("period_key")]),
@@ -203,24 +403,28 @@ function savePreventiveRecord(record) {
   }
 
   var sheet = getPreventiveSheet();
+  ensureDatasetColumnExists(sheet);
+
   var data = sheet.getDataRange().getValues();
   var headers = data[0];
 
-  var dateStr = record.operational_date || new Date().toISOString().split("T")[0];
-  var dateParts = dateStr.split("-");
-  var year = dateParts[0] || "2026";
-  var month = dateParts[1] || "08";
-  var folderPath = DRIVE_ROOT_FOLDER + "/" + year + "/" + month + "/" + dateStr + "/Preventive";
+  var targetDsId = (record.dataset_id && String(record.dataset_id).trim()) ? String(record.dataset_id).trim() : "default";
+  record.dataset_id = targetDsId;
+
+  var folderPath = buildPreventiveFolderPath(record);
+  var locationOrEqLabel = record.location_name || record.equipment_name || record.equipment_code || "Equipment";
 
   var processedEvidences = [];
   if (record.evidences && Array.isArray(record.evidences)) {
     for (var i = 0; i < record.evidences.length; i++) {
       var ev = record.evidences[i];
+      var fName = generateDriveFileName(locationOrEqLabel, record.submitted_at, record.operational_date, i);
+
       if (typeof ev === "string") {
         if (ev.indexOf("http") === 0) {
           processedEvidences.push({ id: i + 1, file_path: ev, caption: "" });
         } else {
-          var uploaded = saveImageToDrive(ev, folderPath, "prev_" + record.equipment_id + "_" + i + ".jpg");
+          var uploaded = saveImageToDrive(ev, folderPath, fName);
           processedEvidences.push({
             id: i + 1,
             file_path: uploaded ? uploaded.drive_url : ev,
@@ -231,7 +435,7 @@ function savePreventiveRecord(record) {
       } else if (ev && typeof ev === "object") {
         var path = ev.file_path || ev.url || "";
         if (path && path.indexOf("http") !== 0) {
-          var uploaded = saveImageToDrive(path, folderPath, "prev_" + record.equipment_id + "_" + i + ".jpg");
+          var uploaded = saveImageToDrive(path, folderPath, fName);
           processedEvidences.push({
             ...ev,
             file_path: uploaded ? uploaded.drive_url : path,
@@ -254,16 +458,18 @@ function savePreventiveRecord(record) {
   var freqId = Number(record.checklist_frequency_id);
   var periodKey = String(record.period_key || "");
   var shiftStr = String(record.shift || "");
+  var dsColIdx = headers.indexOf("dataset_id");
 
-  // Unique tuple match: (equipment_id, checklist_frequency_id, period_key, shift)
+  // Unique tuple match: (equipment_id, checklist_frequency_id, period_key, shift, dataset_id)
   var existingRowIndex = -1;
   for (var r = 1; r < data.length; r++) {
     var rEq = Number(data[r][headers.indexOf("equipment_id")]);
     var rFreq = Number(data[r][headers.indexOf("checklist_frequency_id")]);
     var rPeriod = String(data[r][headers.indexOf("period_key")] || "");
     var rShift = String(data[r][headers.indexOf("shift")] || "");
+    var rDs = dsColIdx !== -1 ? (String(data[r][dsColIdx] || "").trim() || "default") : "default";
 
-    if (rEq === eqId && rFreq === freqId && rPeriod === periodKey && rShift === shiftStr) {
+    if (rEq === eqId && rFreq === freqId && rPeriod === periodKey && rShift === shiftStr && rDs === targetDsId) {
       existingRowIndex = r + 1;
       break;
     }
@@ -271,6 +477,7 @@ function savePreventiveRecord(record) {
 
   var rowValues = [
     record.id,
+    record.dataset_id,
     record.equipment_id,
     record.equipment_code || "",
     record.equipment_name || "",
@@ -308,7 +515,7 @@ function savePreventiveRecord(record) {
 // CORRECTIVE RECORDS
 function getCorrectiveSheet() {
   var headers = [
-    "record_id", "corrective_code", "operational_date", "shift",
+    "record_id", "dataset_id", "corrective_code", "operational_date", "shift",
     "equipment_id", "equipment_name", "equipment_type", "location_id",
     "problem_description", "action_taken", "result", "result_text",
     "start_time", "end_time", "technicians", "created_by", "notes",
@@ -317,7 +524,7 @@ function getCorrectiveSheet() {
   return getOrCreateSheet(CORRECTIVE_TAB, headers);
 }
 
-function getCorrectiveRecords(operationalDate, shift) {
+function getCorrectiveRecords(operationalDate, shift, targetDatasetId) {
   var sheet = getCorrectiveSheet();
   var data = sheet.getDataRange().getValues();
   if (data.length <= 1) {
@@ -326,10 +533,15 @@ function getCorrectiveRecords(operationalDate, shift) {
 
   var headers = data[0];
   var records = [];
+  var activeDs = (targetDatasetId && String(targetDatasetId).trim()) ? String(targetDatasetId).trim() : "default";
+  var dsColIdx = headers.indexOf("dataset_id");
 
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
     if (!row[0]) continue;
+
+    var rowDsId = dsColIdx !== -1 ? (String(row[dsColIdx] || "").trim() || "default") : "default";
+    if (rowDsId !== activeDs) continue;
 
     var recOpDate = String(row[headers.indexOf("operational_date")] || "");
     var recShift = String(row[headers.indexOf("shift")] || "");
@@ -340,6 +552,7 @@ function getCorrectiveRecords(operationalDate, shift) {
     try {
       var record = {
         id: Number(row[headers.indexOf("record_id")]),
+        dataset_id: rowDsId,
         corrective_code: String(row[headers.indexOf("corrective_code")] || ""),
         corrective_date: recOpDate,
         shift: recShift,
@@ -373,24 +586,28 @@ function saveCorrectiveRecord(record) {
   }
 
   var sheet = getCorrectiveSheet();
+  ensureDatasetColumnExists(sheet);
+
   var data = sheet.getDataRange().getValues();
   var headers = data[0];
 
-  var dateStr = record.corrective_date || new Date().toISOString().split("T")[0];
-  var dateParts = dateStr.split("-");
-  var year = dateParts[0] || "2026";
-  var month = dateParts[1] || "08";
-  var folderPath = DRIVE_ROOT_FOLDER + "/" + year + "/" + month + "/" + dateStr + "/Corrective";
+  var targetDsId = (record.dataset_id && String(record.dataset_id).trim()) ? String(record.dataset_id).trim() : "default";
+  record.dataset_id = targetDsId;
+
+  var folderPath = buildCorrectiveFolderPath(record);
+  var locationOrEqLabel = record.location_name || record.equipment_name || "Equipment";
 
   var processedEvidences = [];
   if (record.evidences && Array.isArray(record.evidences)) {
     for (var i = 0; i < record.evidences.length; i++) {
       var ev = record.evidences[i];
+      var fName = generateDriveFileName(locationOrEqLabel, record.start_time, record.corrective_date || record.operational_date, i);
+
       if (typeof ev === "string") {
         if (ev.indexOf("http") === 0) {
           processedEvidences.push(ev);
         } else {
-          var uploaded = saveImageToDrive(ev, folderPath, "corr_" + (record.id || Date.now()) + "_" + i + ".jpg");
+          var uploaded = saveImageToDrive(ev, folderPath, fName);
           processedEvidences.push(uploaded ? uploaded.drive_url : ev);
         }
       } else {
@@ -407,13 +624,15 @@ function saveCorrectiveRecord(record) {
 
   var recId = Number(record.id);
   var corrCode = String(record.corrective_code || "");
+  var dsColIdx = headers.indexOf("dataset_id");
 
   var existingRowIndex = -1;
   for (var r = 1; r < data.length; r++) {
     var rowId = Number(data[r][headers.indexOf("record_id")]);
     var rowCode = String(data[r][headers.indexOf("corrective_code")] || "");
+    var rDs = dsColIdx !== -1 ? (String(data[r][dsColIdx] || "").trim() || "default") : "default";
 
-    if (rowId === recId || (corrCode && rowCode === corrCode)) {
+    if ((rowId === recId || (corrCode && rowCode === corrCode)) && rDs === targetDsId) {
       existingRowIndex = r + 1;
       break;
     }
@@ -421,6 +640,7 @@ function saveCorrectiveRecord(record) {
 
   var rowValues = [
     record.id,
+    record.dataset_id,
     record.corrective_code || "",
     record.corrective_date || "",
     record.shift || "",

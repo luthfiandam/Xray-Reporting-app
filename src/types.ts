@@ -89,6 +89,7 @@ export interface PreventiveEvidence {
 
 export interface PreventiveEntry {
   id: number;
+  dataset_id?: string;
   preventive_session_id: number;
   equipment_id: number;
   checklist_frequency_id: number;
@@ -110,6 +111,7 @@ export interface PreventiveEntry {
 
 export interface CorrectiveReport {
   id: number;
+  dataset_id?: string;
   corrective_code: string; // CR-20260807-001
   corrective_date: string; // YYYY-MM-DD
   shift?: ShiftType;
@@ -127,6 +129,14 @@ export interface CorrectiveReport {
   created_at: string;
   updated_at?: string;
   evidences: string[];
+}
+
+export interface CloudDataset {
+  id: string;
+  name: string;
+  preventive_count: number;
+  corrective_count: number;
+  last_updated?: string;
 }
 
 export interface StructuredCorrectiveEntry {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { compressImage } from '../utils/imageCompressor';
+import { applyWatermark, buildDriveFolderPath, generateDriveFileName } from '../utils/watermark';
 import {
   Equipment,
   EquipmentType,
@@ -44,6 +45,7 @@ import { getPeriodKey } from '../utils/periodUtils';
 interface PreventiveViewProps {
   equipments: Equipment[];
   equipmentTypes: EquipmentType[];
+  locations?: Location[];
   frequencies: ChecklistFrequency[];
   checklistItems: ChecklistItem[];
   preventiveEntries: PreventiveEntry[];
@@ -66,6 +68,7 @@ interface PhotoDocs {
 export const PreventiveView: React.FC<PreventiveViewProps> = ({
   equipments,
   equipmentTypes,
+  locations = [],
   frequencies,
   checklistItems,
   preventiveEntries,
@@ -299,14 +302,34 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
     setChecklistResults(updated);
   };
 
+  const getWatermarkOpts = () => {
+    const locObj = locations.find((l) => l.id === selectedEquipment?.location_id);
+    const typeObj = equipmentTypes.find((t) => t.id === selectedEquipment?.equipment_type_id);
+    const freqObj = frequencies.find((f) => f.id === Number(selectedFrequencyId));
+    const now = new Date();
+    const timeFormatted = `${String(now.getHours()).padStart(2, '0')}.${String(now.getMinutes()).padStart(2, '0')}`;
+
+    return {
+      equipmentName: selectedEquipment?.name || 'Equipment',
+      locationName: locObj?.name || selectedEquipment?.equipment_code || '',
+      equipmentType: typeObj?.name || '',
+      operationalDate: operationalDate || new Date().toISOString().split('T')[0],
+      time: timeFormatted,
+      shift: shift,
+      reportType: 'PREVENTIVE' as const,
+      frequencyName: freqObj?.name || freqObj?.code || 'Harian',
+    };
+  };
+
   // Photo Upload Handlers
   const handleSinglePhotoUpload = async (
     key: 'tegangan' | 'report' | 'sinyal_gen_a' | 'sinyal_gen_b',
     file: File
   ) => {
     try {
-      const compressedUrl = await compressImage(file, 1600, 0.82);
-      setPhotoDocs((prev) => ({ ...prev, [key]: compressedUrl }));
+      const wmOpts = getWatermarkOpts();
+      const watermarkedUrl = await applyWatermark(file, wmOpts, 1600, 0.85);
+      setPhotoDocs((prev) => ({ ...prev, [key]: watermarkedUrl }));
     } catch (err) {
       console.error('Compression error:', err);
       const reader = new FileReader();
@@ -335,15 +358,16 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
     const maxBebersih = isHidingMeasurements ? 7 : 4;
 
     try {
-      const compressedPhotos = await Promise.all(
-        fileList.map((file: File) => compressImage(file, 1600, 0.82))
+      const wmOpts = getWatermarkOpts();
+      const watermarkedPhotos = await Promise.all(
+        fileList.map((file: File) => applyWatermark(file, wmOpts, 1600, 0.85))
       );
       setPhotoDocs((prev) => {
         const existing = prev.bebersih || [];
         if (existing.length >= maxBebersih) return prev;
         return {
           ...prev,
-          bebersih: [...existing, ...compressedPhotos].slice(0, maxBebersih),
+          bebersih: [...existing, ...watermarkedPhotos].slice(0, maxBebersih),
         };
       });
     } catch (err) {
@@ -365,12 +389,13 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
     }
 
     try {
-      const compressedPhotos = await Promise.all(
-        validFiles.map((file: File) => compressImage(file, 1600, 0.82))
+      const wmOpts = getWatermarkOpts();
+      const watermarkedPhotos = await Promise.all(
+        validFiles.map((file: File) => applyWatermark(file, wmOpts, 1600, 0.85))
       );
       setPhotoDocs((prev) => ({
         ...prev,
-        bebersih: [...(prev.bebersih || []), ...compressedPhotos].slice(0, 7),
+        bebersih: [...(prev.bebersih || []), ...watermarkedPhotos].slice(0, 7),
       }));
     } catch (err) {
       console.error('Simple docs compression error:', err);
@@ -690,7 +715,21 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
       }
     }
 
-    const newEntry: Omit<PreventiveEntry, 'id'> = {
+    const locObj = locations.find((l) => l.id === selectedEquipment?.location_id);
+    const typeObj = equipmentTypes.find((t) => t.id === selectedEquipment?.equipment_type_id);
+    const freqObj = frequencies.find((f) => f.id === Number(selectedFrequencyId));
+
+    const driveFolderPath = buildDriveFolderPath({
+      reportType: 'PREVENTIVE',
+      frequencyName: freqObj?.frequency_name || 'Harian',
+      operationalDate: operationalDate,
+      shift: shift,
+      equipmentType: typeObj?.name || 'EQUIPMENT',
+      locationName: locObj?.name || selectedEquipment.equipment_code,
+      equipmentName: selectedEquipment.name,
+    });
+
+    const newEntry: Omit<PreventiveEntry, 'id'> & { folder_path?: string } = {
       preventive_session_id: 101,
       equipment_id: selectedEquipment.id,
       checklist_frequency_id: Number(selectedFrequencyId),
@@ -706,6 +745,7 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
       operational_date: operationalDate,
       shift: shift as any,
       period_key: currentPeriodKey,
+      folder_path: driveFolderPath,
     };
 
     onSubmitEntry(newEntry);

@@ -10,54 +10,10 @@ import {
   StructuredCorrectiveEntry,
 } from '../types';
 import { getOperationalShiftForCorrective } from '../utils/technicianSchedule';
+import { formatIndonesianDate, formatTimeShort, formatTimeRange } from '../utils/timeFormat';
 
 export function formatDateIndonesian(dateString: string): string {
-  if (!dateString) return '';
-  let date: Date;
-  if (dateString.includes('-')) {
-    const parts = dateString.split('-');
-    if (parts.length === 3) {
-      date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-    } else {
-      date = new Date(dateString);
-    }
-  } else {
-    date = new Date(dateString);
-  }
-
-  if (isNaN(date.getTime())) {
-    return dateString;
-  }
-
-  const days = [
-    'Minggu',
-    'Senin',
-    'Selasa',
-    'Rabu',
-    'Kamis',
-    'Jumat',
-    'Sabtu'
-  ];
-
-  const months = [
-    'Januari',
-    'Februari',
-    'Maret',
-    'April',
-    'Mei',
-    'Juni',
-    'Juli',
-    'Agustus',
-    'September',
-    'Oktober',
-    'November',
-    'Desember',
-  ];
-  const dayName = days[date.getDay()];
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = months[date.getMonth()];
-  const year = date.getFullYear();
-  return `${dayName}, ${day} ${month} ${year}`;
+  return formatIndonesianDate(dateString, { includeDayName: true });
 }
 
 export function buildStructuredReportData(
@@ -156,13 +112,9 @@ export function buildStructuredReportData(
     const eqType = equipmentTypes.find((t) => t.id === eq?.equipment_type_id);
     const loc = locations.find((l) => l.id === (report.location_id || eq?.location_id));
 
-    const sTime = report.start_time ? report.start_time.replace(':', '.') : '00.00';
-    const eTime = report.end_time ? report.end_time.replace(':', '.') : '';
-    
-    let timeRange = `${sTime} WIB`;
-    if (eTime && eTime !== sTime) {
-      timeRange = `${sTime} s/d ${eTime} WIB`;
-    }
+    const sTime = formatTimeShort(report.start_time, false);
+    const eTime = formatTimeShort(report.end_time, false);
+    const timeRange = formatTimeRange(report.start_time, report.end_time);
 
     return {
       id: report.id,
@@ -186,8 +138,8 @@ export function buildStructuredReportData(
   return {
     operational_date: formatDateIndonesian(session.operational_date),
     shift: session.shift,
-    start_time: startTime.replace(':', '.'),
-    end_time: endTime.replace(':', '.'),
+    start_time: formatTimeShort(startTime, false),
+    end_time: formatTimeShort(endTime, false),
     technicians: techNames.length > 0 ? techNames : session.technician_names,
     lines_by_type: linesByType,
     entries_by_type: entriesByType,
@@ -241,7 +193,7 @@ export function generateWhatsAppReportText(data: StructuredReportData, targetFre
 
   let text = `*LAPORAN PREVENTIVE MAINTENANCE*\n\n`;
   text += `Hari / Tanggal : ${data.operational_date} (${data.shift})\n`;
-  text += `Jam : ${data.start_time} s/d ${data.end_time} WIB\n\n`;
+  text += `Jam : ${formatTimeRange(data.start_time, data.end_time)}\n\n`;
 
   text += `Teknisi :\n`;
   for (const tech of data.technicians) {
@@ -376,7 +328,7 @@ export function generateWhatsAppReportText(data: StructuredReportData, targetFre
 export function generateCorrectiveWhatsAppReportText(data: StructuredReportData): string {
   let text = `*LAPORAN CORRECTIVE MAINTENANCE*\n\n`;
   text += `Hari / Tanggal : ${data.operational_date} (${data.shift})\n`;
-  text += `Jam : ${data.start_time} s/d ${data.end_time} WIB\n\n`;
+  text += `Jam : ${formatTimeRange(data.start_time, data.end_time)}\n\n`;
 
   text += `Teknisi :\n`;
   for (const tech of data.technicians) {

@@ -3,6 +3,7 @@ import { StructuredReportData } from '../types';
 import { generateWhatsAppReportText, generateCorrectiveWhatsAppReportText } from '../services/reportService';
 import { downloadReportPdf, shareReportPdf, generatePdfPuppeteerFallback, downloadBlob } from '../pdf/pdfService';
 import { logoBase64 } from '../logoBase64';
+import { formatTimeShort, formatTimeRange, formatIndonesianDate } from '../utils/timeFormat';
 import {
   Send,
   Copy,
@@ -133,7 +134,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ structuredData }) => {
   const handleDownloadExcel = () => {
     let csv = `LAPORAN PREVENTIVE MAINTENANCE HARIAN PT. NARARYA TEKNOLOGI INDONESIA\n`;
     csv += `Tanggal,${structuredData.operational_date},Shift,${structuredData.shift}\n`;
-    csv += `Jam,${structuredData.start_time} s/d ${structuredData.end_time} WIB\n`;
+    csv += `Jam,${formatTimeRange(structuredData.start_time, structuredData.end_time)}\n`;
     csv += `Teknisi,${structuredData.technicians.join('; ')}\n\n`;
 
     csv += `Sequence,Category,Equipment Name,View Type,Status,Notes\n`;
@@ -357,7 +358,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ structuredData }) => {
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
                 <span className="text-slate-400 block font-semibold">Jam Pemeriksaan</span>
                 <span className="font-bold text-slate-800 text-sm">
-                  {structuredData.start_time} s/d {structuredData.end_time} WIB
+                  {formatTimeRange(structuredData.start_time, structuredData.end_time)}
                 </span>
               </div>
 
@@ -438,7 +439,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ structuredData }) => {
                       {item.notes}
                     </td>
                     <td className="p-2.5 border border-slate-200 text-center font-mono text-slate-500">
-                      {item.submitted_at}
+                      {formatTimeShort(item.submitted_at)}
                     </td>
                   </tr>
                 ))
@@ -947,9 +948,11 @@ export const ReportView: React.FC<ReportViewProps> = ({ structuredData }) => {
                         const isPreventiveRow = row.kind === 'preventive';
 
                         // Format time range for this row
-                        let rowTimeStr = `${structuredData.start_time || '08.20'} s/d ${structuredData.end_time || '10.00'} WIB`;
+                        let rowTimeStr = formatTimeRange(structuredData.start_time, structuredData.end_time);
                         if (row.kind === 'corrective' && row.time_range) {
-                          rowTimeStr = row.time_range.includes('WIB') ? row.time_range : `${row.time_range} WIB`;
+                          rowTimeStr = row.time_range.includes('-') || row.time_range.includes('WIB')
+                            ? row.time_range
+                            : `${row.time_range} WIB`;
                         }
 
                         return (
