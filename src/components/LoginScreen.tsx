@@ -54,7 +54,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     }
     const success = onLoginSupervisor(supervisorPassword);
     if (!success) {
-      setErrorMsg('Password supervisor salah. (Gunakan: admin)');
+      setErrorMsg('Password supervisor salah.');
     } else {
       setErrorMsg('');
     }

@@ -352,8 +352,7 @@ export default function App() {
 
   // Login Supervisor Handler
   const handleLoginSupervisor = (password: string): boolean => {
-    const validPasswords = ['admin', 'supervisor', '123456', 'luthfianda'];
-    if (validPasswords.includes(password.toLowerCase().trim())) {
+    if (password.trim() === 'nanda24128') {
       setRole('supervisor');
       setActiveTab('dashboard');
       setIsLoggedIn(true);

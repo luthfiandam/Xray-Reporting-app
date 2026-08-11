@@ -3,7 +3,6 @@ import { StructuredReportData } from '../types';
 import { generateWhatsAppReportText, generateCorrectiveWhatsAppReportText } from '../services/reportService';
 import { downloadReportPdf, shareReportPdf, generatePdfPuppeteerFallback, downloadBlob } from '../pdf/pdfService';
 import { getReportPdfArchivePathAndFilename } from '../utils/pdfArchiveUtils';
-import { logoBase64 } from '../logoBase64';
 import { formatTimeShort, formatTimeRange, formatIndonesianDate } from '../utils/timeFormat';
 import {
   Send,
@@ -631,7 +630,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ structuredData }) => {
                         >
                           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%', height: '100%' }}>
                             <img
-                              src={logoBase64}
+                              src="/logo_nti.png"
                               alt="Logo PT Nararya Teknologi Indonesia"
                               style={{
                                 height: '14mm',

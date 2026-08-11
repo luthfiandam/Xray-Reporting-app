@@ -19,14 +19,13 @@ export const SupervisorLoginModal: React.FC<SupervisorLoginModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Default demo password is "admin" or "supervisor"
-    if (password === 'admin' || password === 'supervisor' || password === '123456') {
+    if (password === 'nanda24128') {
       setError('');
       setPassword('');
       onLoginSuccess();
       onClose();
     } else {
-      setError('Password Supervisor salah. Gunakan password default: admin');
+      setError('Password Supervisor salah.');
     }
   };
 

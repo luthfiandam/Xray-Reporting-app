@@ -8,7 +8,6 @@ import {
   StyleSheet,
 } from '@react-pdf/renderer';
 import { StructuredReportData } from '../types';
-import { logoBase64 } from '../logoBase64';
 import { formatTimeRange } from '../utils/timeFormat';
 
 export interface PdfRowData {
@@ -609,7 +608,7 @@ export const ShiftReportPdfDocument: React.FC<ReportPdfProps> = ({ structuredDat
           {/* 1. Company Header Table */}
           <View style={styles.headerTable}>
             <View style={styles.logoCol}>
-              <Image src={logoBase64} style={styles.logoImage} />
+              <Image src="/logo_nti.png" style={styles.logoImage} />
             </View>
             <View style={styles.titleCol}>
               <Text style={styles.titleText}>PT. NARARYA TEKNOLOGI INDONESIA</Text>
