@@ -107,6 +107,7 @@ export interface PreventiveEntry {
   period_key?: string;
   created_at?: string;
   updated_at?: string;
+  synced?: boolean;
 }
 
 export interface CorrectiveReport {
@@ -129,6 +130,7 @@ export interface CorrectiveReport {
   created_at: string;
   updated_at?: string;
   evidences: string[];
+  synced?: boolean;
 }
 
 export interface CloudDataset {

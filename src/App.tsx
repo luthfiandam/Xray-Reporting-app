@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Role,
   ShiftType,
@@ -104,6 +104,19 @@ export default function App() {
   );
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
 
+  // Concurrency & state refs to eliminate re-entrancy loops
+  const isSyncingRef = useRef(false);
+  const preventiveEntriesRef = useRef(preventiveEntries);
+  const correctiveReportsRef = useRef(correctiveReports);
+
+  useEffect(() => {
+    preventiveEntriesRef.current = preventiveEntries;
+  }, [preventiveEntries]);
+
+  useEffect(() => {
+    correctiveReportsRef.current = correctiveReports;
+  }, [correctiveReports]);
+
   // Sync active dataset choice to localStorage
   useEffect(() => {
     try {
@@ -139,24 +152,60 @@ export default function App() {
       return;
     }
 
+    if (isSyncingRef.current) {
+      console.log('[CloudSync] Sync already in progress, skipping.');
+      return;
+    }
+
+    isSyncingRef.current = true;
     setSyncStatus('syncing');
+    console.log('[CloudSync] Sync started');
+
     try {
-      // 1. First, push local records for current dataset to cloud
-      const currentDsPrev = preventiveEntries.filter((e) => (e.dataset_id || 'default') === currentDs);
-      for (const entry of currentDsPrev) {
+      // 1. Push ONLY unsynced local records for current dataset to cloud
+      const localPrev = preventiveEntriesRef.current.filter(
+        (e) => (e.dataset_id || 'default') === currentDs && !e.synced
+      );
+      const localCorr = correctiveReportsRef.current.filter(
+        (r) => (r.dataset_id || 'default') === currentDs && !r.synced
+      );
+
+      console.log(`[CloudSync] Pending preventive: ${localPrev.length}, corrective: ${localCorr.length}`);
+
+      for (const entry of localPrev) {
         try {
-          await savePreventiveRecord(entry);
+          const res = await savePreventiveRecord(entry);
+          if (res.success && res.data) {
+            setPreventiveEntries((prev) =>
+              prev.map((item) =>
+                item.equipment_id === entry.equipment_id &&
+                item.checklist_frequency_id === entry.checklist_frequency_id &&
+                (item.period_key || '') === (entry.period_key || '') &&
+                (item.shift || '') === (entry.shift || '')
+                  ? { ...item, ...res.data, synced: true }
+                  : item
+              )
+            );
+          }
         } catch (pushErr) {
-          console.warn('[CloudSync] Retry push preventive record failed:', pushErr);
+          console.warn('[CloudSync] Push preventive record failed:', pushErr);
         }
       }
 
-      const currentDsCorr = correctiveReports.filter((r) => (r.dataset_id || 'default') === currentDs);
-      for (const report of currentDsCorr) {
+      for (const report of localCorr) {
         try {
-          await saveCorrectiveRecord(report);
+          const res = await saveCorrectiveRecord(report);
+          if (res.success && res.data) {
+            setCorrectiveReports((prev) =>
+              prev.map((item) =>
+                item.id === report.id || (item.corrective_code && item.corrective_code === report.corrective_code)
+                  ? { ...item, ...res.data, synced: true }
+                  : item
+              )
+            );
+          }
         } catch (pushErr) {
-          console.warn('[CloudSync] Retry push corrective record failed:', pushErr);
+          console.warn('[CloudSync] Push corrective record failed:', pushErr);
         }
       }
 
@@ -166,6 +215,8 @@ export default function App() {
         fetchCorrectiveRecords(undefined, undefined, currentDs),
       ]);
 
+      console.log('[CloudSync] Fetch completed');
+
       if (prevRes.success && Array.isArray(prevRes.data)) {
         setPreventiveEntries((localEntries) => {
           const cloudRecords = prevRes.data!;
@@ -174,6 +225,7 @@ export default function App() {
 
           const merged = [...currentDsEntries];
           for (const cloudRec of cloudRecords) {
+            const cloudItem = { ...cloudRec, dataset_id: currentDs, synced: true };
             const idx = merged.findIndex(
               (e) =>
                 e.equipment_id === cloudRec.equipment_id &&
@@ -185,10 +237,10 @@ export default function App() {
               const localUpdated = merged[idx].updated_at || '';
               const cloudUpdated = cloudRec.updated_at || '';
               if (!localUpdated || cloudUpdated >= localUpdated) {
-                merged[idx] = { ...merged[idx], ...cloudRec, dataset_id: currentDs };
+                merged[idx] = { ...merged[idx], ...cloudItem };
               }
             } else {
-              merged.push({ ...cloudRec, dataset_id: currentDs });
+              merged.push(cloudItem);
             }
           }
           return [...otherDsEntries, ...merged];
@@ -203,6 +255,7 @@ export default function App() {
 
           const merged = [...currentDsReports];
           for (const cloudReport of cloudReports) {
+            const cloudItem = { ...cloudReport, dataset_id: currentDs, synced: true };
             const idx = merged.findIndex(
               (r) =>
                 r.id === cloudReport.id ||
@@ -212,10 +265,10 @@ export default function App() {
               const localUpdated = merged[idx].updated_at || '';
               const cloudUpdated = cloudReport.updated_at || '';
               if (!localUpdated || cloudUpdated >= localUpdated) {
-                merged[idx] = { ...merged[idx], ...cloudReport, dataset_id: currentDs };
+                merged[idx] = { ...merged[idx], ...cloudItem };
               }
             } else {
-              merged.push({ ...cloudReport, dataset_id: currentDs });
+              merged.push(cloudItem);
             }
           }
           return [...otherDsReports, ...merged];
@@ -224,11 +277,14 @@ export default function App() {
 
       setSyncStatus('synced');
       setLastSyncTime(new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
+      console.log('[CloudSync] Sync finished');
     } catch (err) {
-      console.warn('[CloudSync] Sync from cloud failed:', err);
+      console.warn('[CloudSync] Sync failed:', err);
       setSyncStatus('error');
+    } finally {
+      isSyncingRef.current = false;
     }
-  }, [activeDatasetId, preventiveEntries, correctiveReports]);
+  }, [activeDatasetId]);
 
   // Switch Active Dataset Handler
   const handleSwitchDataset = (newDsId: string) => {
@@ -347,7 +403,7 @@ export default function App() {
             );
             if (idx >= 0) {
               const updated = [...prev];
-              updated[idx] = { ...updated[idx], ...cloudRecord };
+              updated[idx] = { ...updated[idx], ...cloudRecord, synced: true };
               return updated;
             }
             return prev;
@@ -411,7 +467,7 @@ export default function App() {
             );
             if (idx >= 0) {
               const updated = [...prev];
-              updated[idx] = { ...updated[idx], ...cloudRecord };
+              updated[idx] = { ...updated[idx], ...cloudRecord, synced: true };
               return updated;
             }
             return prev;

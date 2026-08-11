@@ -149,6 +149,8 @@ function doPost(e) {
       result = handlePhotoUpload(payload.base64Data || payload.base64_data, payload.folderPath || payload.folder_path, payload.fileName || payload.file_name, payload.photoType || payload.photo_type);
     } else if (action === "uploadPdf" || action === "upload_pdf") {
       result = handlePdfUpload(payload.base64Data || payload.base64_data, payload.folderPath || payload.folder_path, payload.fileName || payload.file_name, payload.metadata);
+    } else if (action === "deduplicatePreventive" || action === "deduplicate_preventive") {
+      result = deduplicatePreventiveRecords();
     } else {
       result = { success: false, message: "Invalid action: " + action };
     }
@@ -548,22 +550,35 @@ function savePreventiveRecord(record) {
   if (!record.created_at) record.created_at = now;
   if (!record.id) record.id = Date.now();
 
+  var reqId = record.id ? Number(record.id) : null;
   var eqId = Number(record.equipment_id);
   var freqId = Number(record.checklist_frequency_id);
-  var periodKey = String(record.period_key || "");
-  var shiftStr = String(record.shift || "");
+  var periodKey = String(record.period_key || "").trim();
+  var shiftCode = normalizeShiftCode(record.shift);
   var dsColIdx = headers.indexOf("dataset_id");
+  var recordIdColIdx = headers.indexOf("record_id");
 
-  // Unique tuple match: (equipment_id, checklist_frequency_id, period_key, shift, dataset_id)
+  // Deterministic matching:
+  // 1. Check exact record_id match
+  // 2. Fallback to canonical tuple match: (equipment_id, checklist_frequency_id, period_key, shift, dataset_id)
   var existingRowIndex = -1;
   for (var r = 1; r < data.length; r++) {
-    var rEq = Number(data[r][headers.indexOf("equipment_id")]);
-    var rFreq = Number(data[r][headers.indexOf("checklist_frequency_id")]);
-    var rPeriod = String(data[r][headers.indexOf("period_key")] || "");
-    var rShift = String(data[r][headers.indexOf("shift")] || "");
-    var rDs = dsColIdx !== -1 ? (String(data[r][dsColIdx] || "").trim() || "default") : "default";
+    var row = data[r];
+    var rowRecordId = recordIdColIdx !== -1 ? Number(row[recordIdColIdx]) : Number(row[0]);
+    var rEq = Number(row[headers.indexOf("equipment_id")]);
+    var rFreq = Number(row[headers.indexOf("checklist_frequency_id")]);
+    var rPeriod = String(row[headers.indexOf("period_key")] || "").trim();
+    var rShift = normalizeShiftCode(row[headers.indexOf("shift")]);
+    var rDs = dsColIdx !== -1 ? (String(row[dsColIdx] || "").trim() || "default") : "default";
 
-    if (rEq === eqId && rFreq === freqId && rPeriod === periodKey && rShift === shiftStr && rDs === targetDsId) {
+    if (rDs !== targetDsId) continue;
+
+    if (reqId && rowRecordId && reqId === rowRecordId) {
+      existingRowIndex = r + 1;
+      break;
+    }
+
+    if (rEq === eqId && rFreq === freqId && rPeriod === periodKey && rShift === shiftCode) {
       existingRowIndex = r + 1;
       break;
     }
@@ -603,6 +618,115 @@ function savePreventiveRecord(record) {
     success: true,
     message: existingRowIndex > 0 ? "Preventive record updated successfully" : "Preventive record created successfully",
     data: record
+  };
+}
+
+function normalizeShiftCode(shiftStr) {
+  if (!shiftStr) return "PS";
+  var sUpper = String(shiftStr).toUpperCase().trim();
+  if (sUpper.indexOf("MALAM") !== -1 || sUpper === "M") {
+    return "M";
+  } else if (sUpper.indexOf("PAGI") !== -1 || sUpper === "PS") {
+    return "PS";
+  }
+  return sUpper;
+}
+
+/**
+ * SAFE MANUAL CLEANUP FUNCTION FOR DUPLICATE PREVENTIVE RECORDS
+ * Can be run manually from Google Apps Script Editor or triggered via API action 'deduplicate_preventive'.
+ * Scans Preventive_Records, groups by dataset_id + equipment_id + checklist_frequency_id + period_key + shift,
+ * keeps the newest row per group, and deletes older duplicates.
+ */
+function deduplicatePreventiveRecords() {
+  var sheet = getPreventiveSheet();
+  var data = sheet.getDataRange().getValues();
+  if (data.length <= 1) {
+    return {
+      success: true,
+      message: "No data rows to deduplicate",
+      summary: { rows_scanned: 0, duplicate_groups_found: 0, rows_removed: 0, rows_retained: 0 }
+    };
+  }
+
+  var headers = data[0];
+  var dsColIdx = headers.indexOf("dataset_id");
+  var eqColIdx = headers.indexOf("equipment_id");
+  var freqColIdx = headers.indexOf("checklist_frequency_id");
+  var periodColIdx = headers.indexOf("period_key");
+  var shiftColIdx = headers.indexOf("shift");
+  var updatedColIdx = headers.indexOf("updated_at");
+  var submittedColIdx = headers.indexOf("submitted_at");
+
+  var groups = {};
+  var totalScanned = data.length - 1;
+
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (!row[0] && !row[eqColIdx]) continue;
+
+    var rDs = dsColIdx !== -1 ? (String(row[dsColIdx] || "").trim() || "default") : "default";
+    var rEq = Number(row[eqColIdx]);
+    var rFreq = Number(row[freqColIdx]);
+    var rPeriod = String(row[periodColIdx] || "").trim();
+    var rShift = normalizeShiftCode(row[shiftColIdx]);
+
+    var key = rDs + "|" + rEq + "|" + rFreq + "|" + rPeriod + "|" + rShift;
+
+    if (!groups[key]) {
+      groups[key] = [];
+    }
+    groups[key].push({
+      rowIndex: i + 1,
+      rowData: row,
+      updatedAt: String(row[updatedColIdx] || row[submittedColIdx] || "")
+    });
+  }
+
+  var duplicateGroupsCount = 0;
+  var rowsToRemove = [];
+  var rowsRetainedCount = 0;
+
+  for (var k in groups) {
+    var items = groups[k];
+    if (items.length > 1) {
+      duplicateGroupsCount++;
+      items.sort(function(a, b) {
+        if (a.updatedAt && b.updatedAt && a.updatedAt !== b.updatedAt) {
+          return b.updatedAt.localeCompare(a.updatedAt);
+        }
+        return b.rowIndex - a.rowIndex;
+      });
+
+      rowsRetainedCount++;
+      for (var j = 1; j < items.length; j++) {
+        rowsToRemove.push(items[j].rowIndex);
+      }
+    } else {
+      rowsRetainedCount++;
+    }
+  }
+
+  // Delete from bottom to top to avoid shifting row numbers
+  rowsToRemove.sort(function(a, b) { return b - a; });
+
+  for (var d = 0; d < rowsToRemove.length; d++) {
+    sheet.deleteRow(rowsToRemove[d]);
+  }
+
+  var summary = {
+    rows_scanned: totalScanned,
+    duplicate_groups_found: duplicateGroupsCount,
+    rows_removed: rowsToRemove.length,
+    rows_retained: rowsRetainedCount
+  };
+
+  Logger.log("Deduplication summary: " + JSON.stringify(summary));
+
+  return {
+    success: true,
+    message: "Deduplication of Preventive_Records complete. Removed " + rowsToRemove.length + " duplicate rows.",
+    summary: summary
   };
 }
 
