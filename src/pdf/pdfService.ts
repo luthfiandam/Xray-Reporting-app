@@ -2,7 +2,8 @@ import React from 'react';
 import { pdf } from '@react-pdf/renderer';
 import { StructuredReportData } from '../types';
 import { ShiftReportPdfDocument } from './PdfDocument';
-import { formatReportFilename } from '../components/ReportView';
+import { getReportPdfArchivePathAndFilename } from '../utils/pdfArchiveUtils';
+import { uploadPdfToDrive, GasApiResponse, PdfUploadResult } from '../services/cloudService';
 
 /**
  * Generates a vector PDF Blob from report data using @react-pdf/renderer
@@ -32,35 +33,57 @@ export function downloadBlob(blob: Blob, filename: string): void {
 }
 
 /**
- * Client-side vector PDF download
+ * Client-side vector PDF download + non-blocking Google Drive Cloud Archive
  */
 export async function downloadReportPdf(
   structuredData: StructuredReportData,
   targetFrequencyId?: number
-): Promise<void> {
-  const filename = formatReportFilename(
+): Promise<{ cloudResult?: GasApiResponse<PdfUploadResult>; fileName: string }> {
+  const archiveInfo = getReportPdfArchivePathAndFilename(
     structuredData.operational_date,
     structuredData.shift,
-    targetFrequencyId
+    targetFrequencyId || 1
   );
+
   const blob = await generateReportPdfBlob(structuredData, targetFrequencyId);
-  downloadBlob(blob, filename);
+
+  // Trigger local browser download immediately
+  downloadBlob(blob, archiveInfo.fileName);
+
+  // Trigger non-blocking Google Drive cloud archive
+  let cloudResult: GasApiResponse<PdfUploadResult> | undefined;
+  try {
+    cloudResult = await uploadPdfToDrive(blob, archiveInfo.folderPath, archiveInfo.fileName, {
+      interval: archiveInfo.intervalName,
+      period_key: archiveInfo.periodKey,
+      shift: structuredData.shift,
+      operational_date: structuredData.operational_date,
+    });
+  } catch (err) {
+    console.warn('Cloud PDF upload warning:', err);
+  }
+
+  return { cloudResult, fileName: archiveInfo.fileName };
 }
 
 /**
- * Shares PDF via Web Share API or falls back to direct download
+ * Shares PDF via Web Share API or falls back to direct download + non-blocking Google Drive Cloud Archive
  */
 export async function shareReportPdf(
   structuredData: StructuredReportData,
   targetFrequencyId?: number
-): Promise<{ shared: boolean; method: 'web-share' | 'download' }> {
-  const filename = formatReportFilename(
+): Promise<{ shared: boolean; method: 'web-share' | 'download'; cloudResult?: GasApiResponse<PdfUploadResult> }> {
+  const archiveInfo = getReportPdfArchivePathAndFilename(
     structuredData.operational_date,
     structuredData.shift,
-    targetFrequencyId
+    targetFrequencyId || 1
   );
+
   const blob = await generateReportPdfBlob(structuredData, targetFrequencyId);
-  const file = new File([blob], filename, { type: 'application/pdf' });
+  const file = new File([blob], archiveInfo.fileName, { type: 'application/pdf' });
+
+  let shared = false;
+  let method: 'web-share' | 'download' = 'download';
 
   if (
     typeof navigator !== 'undefined' &&
@@ -68,16 +91,37 @@ export async function shareReportPdf(
     navigator.canShare &&
     navigator.canShare({ files: [file] })
   ) {
-    await navigator.share({
-      files: [file],
-      title: 'Laporan Maintenance',
-      text: `Laporan Maintenance ${structuredData.operational_date}`,
-    });
-    return { shared: true, method: 'web-share' };
+    try {
+      await navigator.share({
+        files: [file],
+        title: 'Laporan Maintenance',
+        text: `Laporan Maintenance ${structuredData.operational_date}`,
+      });
+      shared = true;
+      method = 'web-share';
+    } catch {
+      downloadBlob(blob, archiveInfo.fileName);
+      method = 'download';
+    }
   } else {
-    downloadBlob(blob, filename);
-    return { shared: false, method: 'download' };
+    downloadBlob(blob, archiveInfo.fileName);
+    method = 'download';
   }
+
+  // Trigger non-blocking Google Drive cloud archive
+  let cloudResult: GasApiResponse<PdfUploadResult> | undefined;
+  try {
+    cloudResult = await uploadPdfToDrive(blob, archiveInfo.folderPath, archiveInfo.fileName, {
+      interval: archiveInfo.intervalName,
+      period_key: archiveInfo.periodKey,
+      shift: structuredData.shift,
+      operational_date: structuredData.operational_date,
+    });
+  } catch (err) {
+    console.warn('Cloud PDF upload warning:', err);
+  }
+
+  return { shared, method, cloudResult };
 }
 
 /**

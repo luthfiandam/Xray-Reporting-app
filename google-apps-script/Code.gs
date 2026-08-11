@@ -147,6 +147,8 @@ function doPost(e) {
       result = saveCorrectiveRecord(payload.record);
     } else if (action === "uploadPhoto") {
       result = handlePhotoUpload(payload.base64Data, payload.folderPath, payload.fileName, payload.photoType);
+    } else if (action === "uploadPdf" || action === "upload_pdf") {
+      result = handlePdfUpload(payload.base64Data, payload.folderPath, payload.fileName, payload.metadata);
     } else {
       result = { success: false, message: "Invalid action: " + action };
     }
@@ -239,6 +241,89 @@ function saveImageToDrive(base64Data, folderPath, fileName) {
   } catch (err) {
     Logger.log("Error uploading image: " + err);
     return null;
+  }
+}
+
+// Upload base64 PDF report to Google Drive with duplicate prevention (in-place update)
+function savePdfToDrive(base64Data, folderPath, fileName) {
+  if (!base64Data || typeof base64Data !== "string") return null;
+
+  try {
+    var base64String = base64Data;
+    if (base64Data.indexOf("base64,") !== -1) {
+      base64String = base64Data.substring(base64Data.indexOf("base64,") + 7);
+    }
+
+    var bytes = Utilities.base64Decode(base64String);
+    var blob = Utilities.newBlob(bytes, "application/pdf", fileName || "laporan.pdf");
+
+    var targetFolder = getOrCreateFolder(folderPath || "laporan");
+
+    // Check for existing file with same name to prevent duplicates
+    var existingFiles = targetFolder.getFilesByName(fileName);
+    var file;
+
+    if (existingFiles.hasNext()) {
+      var oldFile = existingFiles.next();
+      var oldFileId = oldFile.getId();
+
+      var updatedViaDriveApi = false;
+      try {
+        if (typeof Drive !== "undefined" && Drive.Files && typeof Drive.Files.update === "function") {
+          Drive.Files.update({ name: fileName, mimeType: "application/pdf" }, oldFileId, blob);
+          file = DriveApp.getFileById(oldFileId);
+          updatedViaDriveApi = true;
+        }
+      } catch (driveApiErr) {
+        Logger.log("Advanced Drive Service update error: " + driveApiErr);
+      }
+
+      if (!updatedViaDriveApi) {
+        file = targetFolder.createFile(blob);
+        oldFile.setTrashed(true);
+      }
+
+      // Clean up any remaining duplicate files with the same name
+      while (existingFiles.hasNext()) {
+        var dup = existingFiles.next();
+        dup.setTrashed(true);
+      }
+    } else {
+      file = targetFolder.createFile(blob);
+    }
+
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+    var fileId = file.getId();
+    var fileUrl = file.getUrl();
+
+    return {
+      file_id: fileId,
+      file_name: file.getName(),
+      drive_url: fileUrl,
+      download_url: fileUrl,
+      url: fileUrl,
+      updated_at: new Date().toISOString()
+    };
+  } catch (err) {
+    Logger.log("Error uploading PDF to Drive: " + err);
+    return null;
+  }
+}
+
+function handlePdfUpload(base64Data, folderPath, fileName, metadata) {
+  if (!base64Data) {
+    return { success: false, message: "Base64 data PDF tidak ditemukan" };
+  }
+  var uploaded = savePdfToDrive(base64Data, folderPath, fileName);
+  if (uploaded) {
+    return {
+      success: true,
+      message: "PDF berhasil disimpan/diperbarui di Google Drive",
+      data: uploaded
+    };
+  } else {
+    return { success: false, message: "Gagal menyimpan PDF ke Google Drive" };
   }
 }
 

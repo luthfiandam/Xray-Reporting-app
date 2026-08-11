@@ -13,6 +13,14 @@ export interface PhotoUploadResult {
   download_url?: string;
 }
 
+export interface PdfUploadResult {
+  file_id: string;
+  file_name: string;
+  drive_url: string;
+  download_url?: string;
+  updated_at?: string;
+}
+
 /**
  * Returns the configured Google Apps Script Web App URL from Vite environment variables.
  */
@@ -157,4 +165,45 @@ export async function uploadPhotoToDrive(
     fileName,
     photoType,
   });
+}
+
+/**
+ * Converts a Blob to base64 Data URL string
+ */
+export function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      resolve(result);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Uploads or archives an exported PDF to Google Drive via Google Apps Script.
+ */
+export async function uploadPdfToDrive(
+  blob: Blob,
+  folderPath: string,
+  fileName: string,
+  metadata?: Record<string, any>
+): Promise<GasApiResponse<PdfUploadResult>> {
+  try {
+    const base64Data = await blobToBase64(blob);
+    return callGasApi<PdfUploadResult>({
+      action: 'uploadPdf',
+      base64Data,
+      folderPath,
+      fileName,
+      metadata,
+    });
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || 'Gagal mengubah PDF ke format base64.',
+    };
+  }
 }

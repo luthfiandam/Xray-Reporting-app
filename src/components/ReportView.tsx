@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { StructuredReportData } from '../types';
 import { generateWhatsAppReportText, generateCorrectiveWhatsAppReportText } from '../services/reportService';
 import { downloadReportPdf, shareReportPdf, generatePdfPuppeteerFallback, downloadBlob } from '../pdf/pdfService';
+import { getReportPdfArchivePathAndFilename } from '../utils/pdfArchiveUtils';
 import { logoBase64 } from '../logoBase64';
 import { formatTimeShort, formatTimeRange, formatIndonesianDate } from '../utils/timeFormat';
 import {
@@ -23,78 +24,7 @@ interface ReportViewProps {
 }
 
 export const formatReportFilename = (dateStr: string, shiftStr: string, targetFrequencyId?: number): string => {
-  let day = '01';
-  let month = 'Agustus';
-  let year = '2026';
-
-  const monthNames = [
-    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
-  ];
-
-  if (dateStr) {
-    // Remove day names like "Minggu,", "Senin,", "Selasa,", etc.
-    const cleanDate = dateStr.replace(/^(Minggu|Senin|Selasa|Rabu|Kamis|Jumat|Sabtu)[,\s]*/i, '').trim();
-
-    if (cleanDate.includes('-')) {
-      const parts = cleanDate.split('-');
-      if (parts.length === 3) {
-        if (parts[0].length === 4) {
-          // YYYY-MM-DD
-          year = parts[0];
-          const mIdx = parseInt(parts[1], 10) - 1;
-          if (mIdx >= 0 && mIdx < 12) month = monthNames[mIdx];
-          day = parts[2].padStart(2, '0');
-        } else {
-          // DD-MM-YYYY
-          day = parts[0].padStart(2, '0');
-          const mIdx = parseInt(parts[1], 10) - 1;
-          if (mIdx >= 0 && mIdx < 12) month = monthNames[mIdx];
-          year = parts[2];
-        }
-      }
-    } else {
-      const parts = cleanDate.split(/\s+/);
-      if (parts.length >= 3) {
-        day = parts[0].padStart(2, '0');
-        const m = parts[1];
-        if (!isNaN(Number(m))) {
-          const mIdx = parseInt(m, 10) - 1;
-          if (mIdx >= 0 && mIdx < 12) month = monthNames[mIdx];
-        } else {
-          const matchedMonth = monthNames.find(mn => mn.toLowerCase() === m.toLowerCase());
-          month = matchedMonth || m;
-        }
-        year = parts[2];
-      }
-    }
-  }
-
-  day = day.replace(/\D/g, '').padStart(2, '0') || '01';
-  year = year.replace(/\D/g, '') || '2026';
-
-  let shiftCode = 'PS';
-  const sUpper = (shiftStr || '').toUpperCase();
-  if (sUpper.includes('MALAM') || sUpper === 'M') {
-    shiftCode = 'M';
-  } else if (sUpper.includes('PAGI') || sUpper === 'PS') {
-    shiftCode = 'PS';
-  } else if (sUpper) {
-    shiftCode = sUpper;
-  }
-
-  const INTERVAL_NAMES_IND: Record<number, string> = {
-    1: 'Harian',
-    2: 'Mingguan',
-    3: 'Bulanan',
-    4: 'Triwulan',
-    5: 'Semesteran',
-    6: 'Tahunan'
-  };
-
-  const intervalSuffix = targetFrequencyId ? ` - Preventive ${INTERVAL_NAMES_IND[targetFrequencyId] || 'Harian'}` : '';
-
-  return `${day} ${month} ${year} (${shiftCode})${intervalSuffix}.pdf`;
+  return getReportPdfArchivePathAndFilename(dateStr, shiftStr, targetFrequencyId || 1).fileName;
 };
 
 export const ReportView: React.FC<ReportViewProps> = ({ structuredData }) => {
