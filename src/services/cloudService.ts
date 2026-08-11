@@ -22,12 +22,22 @@ export interface PdfUploadResult {
 }
 
 /**
- * Returns the configured Google Apps Script Web App URL from Vite environment variables.
+ * Returns the configured Google Apps Script Web App URL from environment or storage.
  */
 export function getGasApiUrl(): string {
+  if (typeof window !== 'undefined') {
+    const winUrl = (window as any).VITE_GAS_API_URL;
+    if (typeof winUrl === 'string' && winUrl.trim()) return winUrl.trim();
+    const localUrl = localStorage.getItem('VITE_GAS_API_URL');
+    if (typeof localUrl === 'string' && localUrl.trim()) return localUrl.trim();
+  }
   const metaEnv = (import.meta as Record<string, any>).env;
   const url = metaEnv ? metaEnv.VITE_GAS_API_URL : '';
-  return typeof url === 'string' ? url.trim() : '';
+  if (typeof url === 'string' && url.trim()) return url.trim();
+  if (typeof process !== 'undefined' && process.env && process.env.VITE_GAS_API_URL) {
+    return process.env.VITE_GAS_API_URL.trim();
+  }
+  return '';
 }
 
 /**
@@ -43,12 +53,16 @@ export function isCloudConfigured(): boolean {
  */
 async function callGasApi<T>(payload: Record<string, any>): Promise<GasApiResponse<T>> {
   const url = getGasApiUrl();
+  const action = payload.action || 'unknown';
   if (!url) {
+    console.warn(`[CloudSync] Action '${action}' skipped: VITE_GAS_API_URL not configured.`);
     return {
       success: false,
       message: 'VITE_GAS_API_URL belum dikonfigurasi. Aplikasi berjalan dalam mode lokal/offline.',
     };
   }
+
+  console.log(`[CloudSync] Executing '${action}' POST request to ${url}`);
 
   try {
     const response = await fetch(url, {
@@ -61,13 +75,28 @@ async function callGasApi<T>(payload: Record<string, any>): Promise<GasApiRespon
     });
 
     if (!response.ok) {
+      console.error(`[CloudSync] HTTP Error ${response.status} (${response.statusText}) for action '${action}'`);
       throw new Error(`Server merespons dengan status ${response.status}`);
     }
 
-    const result: GasApiResponse<T> = await response.json();
+    const rawText = await response.text();
+    let result: GasApiResponse<T>;
+    try {
+      result = JSON.parse(rawText);
+    } catch (parseErr) {
+      console.error(`[CloudSync] JSON parse error for action '${action}'. Raw response:`, rawText);
+      throw new Error(`Respons server bukan format JSON yang valid.`);
+    }
+
+    if (!result.success) {
+      console.warn(`[CloudSync] Server returned failure for action '${action}':`, result.message);
+    } else {
+      console.log(`[CloudSync] Action '${action}' succeeded:`, result.message || 'Success');
+    }
+
     return result;
   } catch (err: any) {
-    console.warn('Panggilan API Google Apps Script gagal:', err);
+    console.error(`[CloudSync] Network/Fetch exception for action '${action}':`, err);
     return {
       success: false,
       message: err?.message || 'Gagal terhubung ke Google Apps Script backend.',

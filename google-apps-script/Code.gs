@@ -129,26 +129,26 @@ function doPost(e) {
 
     var result = { success: false, message: "Unknown action" };
 
-    if (action === "healthCheck") {
+    if (action === "healthCheck" || action === "health_check") {
       result = {
         success: true,
         message: "Google Apps Script API is active",
         data: { timestamp: new Date().toISOString() }
       };
-    } else if (action === "getDatasets") {
+    } else if (action === "getDatasets" || action === "get_datasets") {
       result = getDatasets();
-    } else if (action === "getPreventiveRecords") {
-      result = getPreventiveRecords(payload.operationalDate, payload.shift, payload.datasetId);
-    } else if (action === "savePreventiveRecord") {
-      result = savePreventiveRecord(payload.record);
-    } else if (action === "getCorrectiveRecords") {
-      result = getCorrectiveRecords(payload.operationalDate, payload.shift, payload.datasetId);
-    } else if (action === "saveCorrectiveRecord") {
-      result = saveCorrectiveRecord(payload.record);
-    } else if (action === "uploadPhoto") {
-      result = handlePhotoUpload(payload.base64Data, payload.folderPath, payload.fileName, payload.photoType);
+    } else if (action === "getPreventiveRecords" || action === "get_preventive_records" || action === "get_preventive") {
+      result = getPreventiveRecords(payload.operationalDate || payload.operational_date, payload.shift, payload.datasetId || payload.dataset_id);
+    } else if (action === "savePreventiveRecord" || action === "save_preventive_record" || action === "save_preventive") {
+      result = savePreventiveRecord(payload.record || payload.data);
+    } else if (action === "getCorrectiveRecords" || action === "get_corrective_records" || action === "get_corrective") {
+      result = getCorrectiveRecords(payload.operationalDate || payload.operational_date, payload.shift, payload.datasetId || payload.dataset_id);
+    } else if (action === "saveCorrectiveRecord" || action === "save_corrective_record" || action === "save_corrective") {
+      result = saveCorrectiveRecord(payload.record || payload.data);
+    } else if (action === "uploadPhoto" || action === "upload_photo") {
+      result = handlePhotoUpload(payload.base64Data || payload.base64_data, payload.folderPath || payload.folder_path, payload.fileName || payload.file_name, payload.photoType || payload.photo_type);
     } else if (action === "uploadPdf" || action === "upload_pdf") {
-      result = handlePdfUpload(payload.base64Data, payload.folderPath, payload.fileName, payload.metadata);
+      result = handlePdfUpload(payload.base64Data || payload.base64_data, payload.folderPath || payload.folder_path, payload.fileName || payload.file_name, payload.metadata);
     } else {
       result = { success: false, message: "Invalid action: " + action };
     }
@@ -483,8 +483,8 @@ function getPreventiveRecords(operationalDate, shift, targetDatasetId) {
 }
 
 function savePreventiveRecord(record) {
-  if (!record || !record.equipment_id || !record.checklist_frequency_id) {
-    return { success: false, message: "Invalid preventive record payload" };
+  if (!record || record.equipment_id === undefined || record.equipment_id === null || record.checklist_frequency_id === undefined || record.checklist_frequency_id === null) {
+    return { success: false, message: "Invalid preventive record payload: missing equipment_id or checklist_frequency_id" };
   }
 
   var sheet = getPreventiveSheet();
@@ -502,33 +502,42 @@ function savePreventiveRecord(record) {
   var processedEvidences = [];
   if (record.evidences && Array.isArray(record.evidences)) {
     for (var i = 0; i < record.evidences.length; i++) {
-      var ev = record.evidences[i];
-      var fName = generateDriveFileName(locationOrEqLabel, record.submitted_at, record.operational_date, i);
+      try {
+        var ev = record.evidences[i];
+        var fName = generateDriveFileName(locationOrEqLabel, record.submitted_at, record.operational_date, i);
 
-      if (typeof ev === "string") {
-        if (ev.indexOf("http") === 0) {
-          processedEvidences.push({ id: i + 1, file_path: ev, caption: "" });
-        } else {
-          var uploaded = saveImageToDrive(ev, folderPath, fName);
-          processedEvidences.push({
-            id: i + 1,
-            file_path: uploaded ? uploaded.drive_url : ev,
-            caption: "",
-            drive_url: uploaded ? uploaded.drive_url : ""
-          });
-        }
-      } else if (ev && typeof ev === "object") {
-        var path = ev.file_path || ev.url || "";
-        if (path && path.indexOf("http") !== 0) {
-          var uploaded = saveImageToDrive(path, folderPath, fName);
-          processedEvidences.push({
-            ...ev,
-            file_path: uploaded ? uploaded.drive_url : path,
-            drive_url: uploaded ? uploaded.drive_url : ev.drive_url
-          });
+        if (typeof ev === "string") {
+          if (ev.indexOf("http") === 0) {
+            processedEvidences.push({ id: i + 1, file_path: ev, caption: "" });
+          } else if (ev.indexOf("data:image/") === 0) {
+            var uploaded = saveImageToDrive(ev, folderPath, fName);
+            processedEvidences.push({
+              id: i + 1,
+              file_path: uploaded ? uploaded.drive_url : ev,
+              caption: "",
+              drive_url: uploaded ? uploaded.drive_url : ""
+            });
+          } else {
+            processedEvidences.push({ id: i + 1, file_path: ev, caption: "" });
+          }
+        } else if (ev && typeof ev === "object") {
+          var path = ev.file_path || ev.url || "";
+          if (path && path.indexOf("data:image/") === 0) {
+            var uploaded = saveImageToDrive(path, folderPath, fName);
+            processedEvidences.push({
+              ...ev,
+              file_path: uploaded ? uploaded.drive_url : path,
+              drive_url: uploaded ? uploaded.drive_url : (ev.drive_url || "")
+            });
+          } else {
+            processedEvidences.push(ev);
+          }
         } else {
           processedEvidences.push(ev);
         }
+      } catch (evErr) {
+        Logger.log("Error processing evidence " + i + ": " + evErr);
+        processedEvidences.push(record.evidences[i]);
       }
     }
   }
@@ -685,18 +694,37 @@ function saveCorrectiveRecord(record) {
   var processedEvidences = [];
   if (record.evidences && Array.isArray(record.evidences)) {
     for (var i = 0; i < record.evidences.length; i++) {
-      var ev = record.evidences[i];
-      var fName = generateDriveFileName(locationOrEqLabel, record.start_time, record.corrective_date || record.operational_date, i);
+      try {
+        var ev = record.evidences[i];
+        var fName = generateDriveFileName(locationOrEqLabel, record.start_time, record.corrective_date || record.operational_date, i);
 
-      if (typeof ev === "string") {
-        if (ev.indexOf("http") === 0) {
-          processedEvidences.push(ev);
+        if (typeof ev === "string") {
+          if (ev.indexOf("http") === 0) {
+            processedEvidences.push(ev);
+          } else if (ev.indexOf("data:image/") === 0) {
+            var uploaded = saveImageToDrive(ev, folderPath, fName);
+            processedEvidences.push(uploaded ? uploaded.drive_url : ev);
+          } else {
+            processedEvidences.push(ev);
+          }
+        } else if (ev && typeof ev === "object") {
+          var path = ev.file_path || ev.url || "";
+          if (path && path.indexOf("data:image/") === 0) {
+            var uploaded = saveImageToDrive(path, folderPath, fName);
+            processedEvidences.push({
+              ...ev,
+              file_path: uploaded ? uploaded.drive_url : path,
+              drive_url: uploaded ? uploaded.drive_url : (ev.drive_url || "")
+            });
+          } else {
+            processedEvidences.push(ev);
+          }
         } else {
-          var uploaded = saveImageToDrive(ev, folderPath, fName);
-          processedEvidences.push(uploaded ? uploaded.drive_url : ev);
+          processedEvidences.push(ev);
         }
-      } else {
-        processedEvidences.push(ev);
+      } catch (evErr) {
+        Logger.log("Error processing corrective evidence " + i + ": " + evErr);
+        processedEvidences.push(record.evidences[i]);
       }
     }
   }

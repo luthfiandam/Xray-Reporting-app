@@ -131,7 +131,7 @@ export default function App() {
     }
   }, [correctiveReports]);
 
-  // Cloud Synchronize Handler (Fetch & Merge)
+  // Cloud Synchronize Handler (Push unsynced local data, then Fetch & Merge)
   const syncFromCloud = useCallback(async (targetDatasetId?: string) => {
     const currentDs = targetDatasetId || activeDatasetId;
     if (!isCloudConfigured()) {
@@ -141,6 +141,26 @@ export default function App() {
 
     setSyncStatus('syncing');
     try {
+      // 1. First, push local records for current dataset to cloud
+      const currentDsPrev = preventiveEntries.filter((e) => (e.dataset_id || 'default') === currentDs);
+      for (const entry of currentDsPrev) {
+        try {
+          await savePreventiveRecord(entry);
+        } catch (pushErr) {
+          console.warn('[CloudSync] Retry push preventive record failed:', pushErr);
+        }
+      }
+
+      const currentDsCorr = correctiveReports.filter((r) => (r.dataset_id || 'default') === currentDs);
+      for (const report of currentDsCorr) {
+        try {
+          await saveCorrectiveRecord(report);
+        } catch (pushErr) {
+          console.warn('[CloudSync] Retry push corrective record failed:', pushErr);
+        }
+      }
+
+      // 2. Fetch latest records from Google Sheets
       const [prevRes, corrRes] = await Promise.all([
         fetchPreventiveRecords(undefined, undefined, currentDs),
         fetchCorrectiveRecords(undefined, undefined, currentDs),
@@ -205,10 +225,10 @@ export default function App() {
       setSyncStatus('synced');
       setLastSyncTime(new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
     } catch (err) {
-      console.warn('Sync from cloud failed:', err);
+      console.warn('[CloudSync] Sync from cloud failed:', err);
       setSyncStatus('error');
     }
-  }, [activeDatasetId]);
+  }, [activeDatasetId, preventiveEntries, correctiveReports]);
 
   // Switch Active Dataset Handler
   const handleSwitchDataset = (newDsId: string) => {
