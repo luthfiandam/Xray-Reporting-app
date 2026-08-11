@@ -59,7 +59,7 @@ export function buildStructuredReportData(
     // Find all entries of this equipment type
     const typeEntries = sanitizedEntries
       .filter((e) => {
-        const eq = equipments.find((eqItem) => eqItem.id === e.equipment_id);
+        const eq = equipments.find((eqItem) => Number(eqItem.id) === Number(e.equipment_id));
         return eq?.equipment_type_id === type.id;
       })
       .sort((a, b) => a.sequence - b.sequence); // ORDER BY sequence chronological
@@ -67,7 +67,7 @@ export function buildStructuredReportData(
     if (typeEntries.length === 0) continue;
 
     const eqNames = typeEntries
-      .map((e) => equipments.find((eqItem) => eqItem.id === e.equipment_id)?.name)
+      .map((e) => equipments.find((eqItem) => Number(eqItem.id) === Number(e.equipment_id))?.name)
       .filter(Boolean) as string[];
 
     linesByType.push({
@@ -81,9 +81,9 @@ export function buildStructuredReportData(
       type_name: type.name,
       priority: type.priority,
       entries: typeEntries.map((e) => {
-        const eq = equipments.find((eqItem) => eqItem.id === e.equipment_id);
+        const eq = equipments.find((eqItem) => Number(eqItem.id) === Number(e.equipment_id));
         return {
-          equipment_id: e.equipment_id,
+          equipment_id: Number(e.equipment_id),
           equipment_name: eq?.name || 'Equipment',
           location_name: eq?.name || '',
           view_type: e.view_type || eq?.default_view || 'single',
@@ -92,7 +92,7 @@ export function buildStructuredReportData(
           submitted_at: e.submitted_at,
           sequence: e.sequence,
           evidences: e.evidences || [],
-          checklist_frequency_id: e.checklist_frequency_id,
+          checklist_frequency_id: Number(e.checklist_frequency_id),
         };
       }),
     });

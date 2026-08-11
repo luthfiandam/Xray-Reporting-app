@@ -25,25 +25,37 @@ export interface ActiveContext {
  */
 export function isRecordInActiveContext(
   record: PreventiveEntry,
-  context: ActiveContext
+  context: ActiveContext,
+  debugLog = false
 ): boolean {
   if (!record) return false;
 
   // 1. Dataset ID match (defaults to 'default')
   const recordDs = (record.dataset_id || 'default').trim();
   const targetDs = (context.datasetId || 'default').trim();
-  if (recordDs !== targetDs) return false;
+  if (recordDs !== targetDs) {
+    if (debugLog) {
+      console.log(`[CloudSync] Rejected record ${record.id}: dataset mismatch (record: '${recordDs}', active: '${targetDs}')`);
+    }
+    return false;
+  }
 
   // 2. Shift match (must be present and match)
   const recordShift = normalizeShift(record.shift);
   const targetShift = normalizeShift(context.shift);
   if (!recordShift || !targetShift || recordShift !== targetShift) {
+    if (debugLog) {
+      console.log(`[CloudSync] Rejected record ${record.id}: shift mismatch (record: '${recordShift}', active: '${targetShift}')`);
+    }
     return false;
   }
 
   // 3. Frequency match if context specifies frequencyId
   const freqId = Number(record.checklist_frequency_id || 1);
   if (context.frequencyId !== undefined && Number(context.frequencyId) !== freqId) {
+    if (debugLog) {
+      console.log(`[CloudSync] Rejected record ${record.id}: frequency mismatch (record: ${freqId}, target: ${context.frequencyId})`);
+    }
     return false;
   }
 
@@ -55,12 +67,18 @@ export function isRecordInActiveContext(
   }
 
   if (!recordPeriodKey || !targetPeriodKey || recordPeriodKey !== targetPeriodKey) {
+    if (debugLog) {
+      console.log(`[CloudSync] Rejected record ${record.id}: period_key mismatch (record: '${recordPeriodKey}', target: '${targetPeriodKey}')`);
+    }
     return false;
   }
 
   // 5. For Harian (freq 1), also ensure operational_date matches if present
   if (freqId === 1 && record.operational_date) {
     if (record.operational_date !== context.operationalDate) {
+      if (debugLog) {
+        console.log(`[CloudSync] Rejected record ${record.id}: operational_date mismatch (record: '${record.operational_date}', target: '${context.operationalDate}')`);
+      }
       return false;
     }
   }
@@ -99,7 +117,7 @@ export function dedupePreventiveRecords(records: PreventiveEntry[]): PreventiveE
 
       if (newTime && (!existingTime || newTime >= existingTime)) {
         map.set(key, record);
-      } else if (!existingTime && !newTime && (record.id || 0) > (existing.id || 0)) {
+      } else if (!existingTime && !newTime && (Number(record.id) || 0) > (Number(existing.id) || 0)) {
         map.set(key, record);
       }
     }
@@ -113,10 +131,11 @@ export function dedupePreventiveRecords(records: PreventiveEntry[]): PreventiveE
  */
 export function getActivePreventiveRecords(
   records: PreventiveEntry[],
-  context: ActiveContext
+  context: ActiveContext,
+  debugLog = false
 ): PreventiveEntry[] {
   if (!Array.isArray(records)) return [];
-  const filtered = records.filter((r) => isRecordInActiveContext(r, context));
+  const filtered = records.filter((r) => isRecordInActiveContext(r, context, debugLog));
   return dedupePreventiveRecords(filtered);
 }
 

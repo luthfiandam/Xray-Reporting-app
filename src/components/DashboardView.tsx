@@ -7,6 +7,7 @@ import {
   ChecklistFrequency,
 } from '../types';
 import { formatTimeShort } from '../utils/timeFormat';
+import { normalizeShift } from '../utils/contextFilter';
 import {
   PlusCircle,
   FileText,
@@ -57,10 +58,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const entriesMap = new Map<number, PreventiveEntry>();
   preventiveEntries.forEach((entry) => {
     if (
-      (!entry.shift || entry.shift === currentSession.shift) &&
+      (!entry.shift || normalizeShift(entry.shift) === normalizeShift(currentSession.shift)) &&
       (!entry.operational_date || entry.operational_date === currentSession.operational_date)
     ) {
-      entriesMap.set(entry.equipment_id, entry);
+      entriesMap.set(Number(entry.equipment_id), entry);
     }
   });
 
@@ -126,9 +127,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* Main Grid Section */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Progress Monitoring & Quick Cards */}
-        <div className="md:col-span-8 space-y-6">
+        <div className="lg:col-span-8 space-y-6">
           {/* Card 1 & Overview Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
@@ -314,7 +315,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Right Column: Reports Action & Reminder Card 3 */}
-        <div className="md:col-span-4 space-y-6">
+        <div className="lg:col-span-4 space-y-6">
           {/* Quick Generate Laporan WA & Exports Box */}
           <div className="bg-slate-800 text-white rounded-2xl p-6 shadow-md">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">

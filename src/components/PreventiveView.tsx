@@ -190,8 +190,8 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
 
   // Check if selected equipment already has an entry submitted today for the selected interval
   const isMatchingContextEntry = (pe: PreventiveEntry, eqId: number, freqId: number, targetPeriodKey: string) => {
-    if (pe.equipment_id !== eqId) return false;
-    if (pe.checklist_frequency_id !== freqId) return false;
+    if (Number(pe.equipment_id) !== Number(eqId)) return false;
+    if (Number(pe.checklist_frequency_id) !== Number(freqId)) return false;
     if (normalizeShift(pe.shift) !== normalizeShift(shift)) return false;
     const peKey = (pe.period_key || '').trim() || (pe.operational_date ? getPeriodKey(freqId, pe.operational_date) : '');
     return peKey === targetPeriodKey;
@@ -1202,12 +1202,8 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
             {/* Equipment Selection Cards Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
               {filteredEquipments.map((eq) => {
-                const hasEntryForInterval = preventiveEntries.some(
-                  (pe) =>
-                    pe.equipment_id === eq.id &&
-                    pe.checklist_frequency_id === Number(selectedFrequencyId) &&
-                    (pe.shift || '') === (shift || '') &&
-                    (pe.period_key || '') === (currentPeriodKey || '')
+                const hasEntryForInterval = preventiveEntries.some((pe) =>
+                  isMatchingContextEntry(pe, eq.id, Number(selectedFrequencyId), currentPeriodKey)
                 );
                 const badge = getMachineIntervalStatusBadge(eq.id);
                 const originalIndex = baseCategoryEquipments.findIndex((item) => item.id === eq.id) + 1;
@@ -1373,8 +1369,8 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
         </button>
       </div>
 
-      {/* Mobile Step Wizard Tabs (Image 3 - visible on small screens) */}
-      <div className="block md:hidden bg-white border border-slate-200 rounded-2xl p-2 shadow-xs">
+      {/* Mobile & Tablet Step Wizard Tabs (visible on screens below lg: 1024px) */}
+      <div className="block lg:hidden bg-white border border-slate-200 rounded-2xl p-2 shadow-xs">
         <div className={`grid ${activeSteps.length === 4 ? 'grid-cols-4' : 'grid-cols-3'} gap-1 text-center`}>
           {activeSteps.map((stepNum, idx) => {
             let label = '';
@@ -1388,7 +1384,7 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
                 key={stepNum}
                 type="button"
                 onClick={() => setMobileStep(stepNum)}
-                className={`py-2 px-1 rounded-xl text-xs font-bold transition-all ${
+                className={`py-2 px-1 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
                   mobileStep === stepNum
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-600 hover:bg-slate-100'
@@ -1402,13 +1398,13 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
       </div>
 
       {/* Main Grid Layout: Form Inputs (Left) & Inspection Summary Sticky (Right) */}
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-28 md:pb-6">
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-28 lg:pb-6">
         {/* LEFT COLUMN: FORM SECTIONS */}
         <div className="lg:col-span-8 space-y-6">
           {/* SECTION 1: DOKUMENTASI FOTO */}
           <div
             className={`bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-5 ${
-              mobileStep !== 1 && 'hidden md:block'
+              mobileStep !== 1 && 'hidden lg:block'
             }`}
           >
             <div className="flex items-start justify-between border-b border-slate-100 pb-4">
@@ -1685,7 +1681,7 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
           {isXRay && !isHidingMeasurements && (
             <div
               className={`bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-5 ${
-                mobileStep !== 2 && 'hidden md:block'
+                mobileStep !== 2 && 'hidden lg:block'
               }`}
             >
               <div className="border-b border-slate-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1880,7 +1876,7 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
           {/* SECTION 3: HASIL CHECKLIST PEMERIKSAAN */}
           <div
             className={`bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-5 ${
-              mobileStep !== 3 && 'hidden md:block'
+              mobileStep !== 3 && 'hidden lg:block'
             }`}
           >
             <div className="border-b border-slate-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1960,7 +1956,7 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
           {/* SECTION 4: SELESAI / KONDISI AKHIR */}
           <div
             className={`bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-5 ${
-              mobileStep !== 4 && 'hidden md:block'
+              mobileStep !== 4 && 'hidden lg:block'
             }`}
           >
             <div className="border-b border-slate-100 pb-4">
@@ -2116,32 +2112,57 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
           </div>
         </div>
 
-        {/* Mobile Sticky Bottom Navigation */}
-        <div className="block md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-lg z-50">
-          <div className="flex items-center justify-between gap-3 max-w-md mx-auto">
+        {/* Mobile & Tablet Sticky Bottom Action Navigation */}
+        <div className="block lg:hidden fixed bottom-0 left-0 md:left-64 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-lg z-40">
+          <div className="flex items-center justify-between gap-2 sm:gap-3 max-w-3xl mx-auto">
             {mobileStep > 1 ? (
               <button
                 type="button"
                 onClick={handlePrevStep}
-                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center gap-1 cursor-pointer"
+                className="px-3.5 sm:px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center gap-1 cursor-pointer shrink-0"
               >
                 <ChevronLeft className="w-4 h-4" />
                 <span>Sebelumnya</span>
               </button>
             ) : (
-              <div></div>
+              <div />
             )}
 
-            {mobileStep < 4 && (
-              <button
-                type="button"
-                onClick={handleNextStep}
-                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl flex items-center gap-1 cursor-pointer shadow-sm"
-              >
-                <span>Berikutnya</span>
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {mobileStep < 4 ? (
+                <button
+                  type="button"
+                  onClick={handleNextStep}
+                  className="px-4 sm:px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl flex items-center gap-1 cursor-pointer shadow-sm shrink-0"
+                >
+                  <span>Berikutnya</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleCreateCollage}
+                    className="px-3 sm:px-4 py-2.5 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                    title="Buat Kolase Foto WA"
+                  >
+                    <ImageIcon className="w-4 h-4" />
+                    <span className="hidden sm:inline">Kolase WA</span>
+                  </button>
+                  <button
+                    type="submit"
+                    className={`px-4 sm:px-5 py-2.5 font-bold text-xs rounded-xl transition-all shadow-md cursor-pointer flex items-center gap-1.5 text-white shrink-0 ${
+                      existingEntry
+                        ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200'
+                        : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>{existingEntry ? 'Update Laporan' : 'Kirim Laporan'}</span>
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </form>

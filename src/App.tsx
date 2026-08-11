@@ -24,7 +24,13 @@ import {
   INITIAL_CORRECTIVE_REPORTS,
 } from './data/initialData';
 import { buildStructuredReportData } from './services/reportService';
-import { getActivePreventiveRecords, getActiveCorrectiveReports } from './utils/contextFilter';
+import {
+  getActivePreventiveRecords,
+  getActiveCorrectiveReports,
+  isRecordInActiveContext,
+  dedupePreventiveRecords,
+  normalizeShift,
+} from './utils/contextFilter';
 import { getOperationalShift, getDefaultTechniciansForShift } from './utils/technicianSchedule';
 import {
   isCloudConfigured,
@@ -219,24 +225,42 @@ export default function App() {
       console.log('[CloudSync] Fetch completed');
 
       if (prevRes.success && Array.isArray(prevRes.data)) {
+        const cloudRecords = prevRes.data;
+        console.log(`[CloudSync] Preventive fetched: ${cloudRecords.length}`);
+
+        // Diagnostic log rejections
+        const activeCtx = {
+          datasetId: currentDs,
+          operationalDate: currentSession.operational_date,
+          shift: currentSession.shift,
+        };
+        cloudRecords.forEach((rec) => {
+          isRecordInActiveContext(rec, activeCtx, true);
+        });
+
         setPreventiveEntries((localEntries) => {
-          const cloudRecords = prevRes.data!;
           const otherDsEntries = localEntries.filter((e) => (e.dataset_id || 'default') !== currentDs);
           const currentDsEntries = localEntries.filter((e) => (e.dataset_id || 'default') === currentDs);
 
           const merged = [...currentDsEntries];
           for (const cloudRec of cloudRecords) {
-            const cloudItem = { ...cloudRec, dataset_id: currentDs, synced: true };
+            const cloudItem = {
+              ...cloudRec,
+              equipment_id: Number(cloudRec.equipment_id),
+              checklist_frequency_id: Number(cloudRec.checklist_frequency_id),
+              dataset_id: currentDs,
+              synced: true,
+            };
             const idx = merged.findIndex(
               (e) =>
-                e.equipment_id === cloudRec.equipment_id &&
-                e.checklist_frequency_id === cloudRec.checklist_frequency_id &&
-                (e.period_key || '') === (cloudRec.period_key || '') &&
-                (e.shift || '') === (cloudRec.shift || '')
+                Number(e.equipment_id) === Number(cloudRec.equipment_id) &&
+                Number(e.checklist_frequency_id) === Number(cloudRec.checklist_frequency_id) &&
+                (e.period_key || '').trim() === (cloudRec.period_key || '').trim() &&
+                normalizeShift(e.shift) === normalizeShift(cloudRec.shift)
             );
             if (idx >= 0) {
-              const localUpdated = merged[idx].updated_at || '';
-              const cloudUpdated = cloudRec.updated_at || '';
+              const localUpdated = merged[idx].updated_at || merged[idx].submitted_at || merged[idx].created_at || '';
+              const cloudUpdated = cloudRec.updated_at || cloudRec.submitted_at || cloudRec.created_at || '';
               if (!localUpdated || cloudUpdated >= localUpdated) {
                 merged[idx] = { ...merged[idx], ...cloudItem };
               }
@@ -244,7 +268,8 @@ export default function App() {
               merged.push(cloudItem);
             }
           }
-          return [...otherDsEntries, ...merged];
+          const deduplicated = dedupePreventiveRecords(merged);
+          return [...otherDsEntries, ...deduplicated];
         });
       }
 
@@ -357,6 +382,8 @@ export default function App() {
     const now = new Date().toISOString();
     const fullEntry: PreventiveEntry = {
       ...entry,
+      equipment_id: Number(entry.equipment_id),
+      checklist_frequency_id: Number(entry.checklist_frequency_id),
       id: (entry as any).id || Date.now(),
       dataset_id: entry.dataset_id || activeDatasetId,
       operational_date: entry.operational_date || currentSession.operational_date,
@@ -369,10 +396,10 @@ export default function App() {
     setPreventiveEntries((prev) => {
       const existingIndex = prev.findIndex(
         (e) =>
-          e.equipment_id === fullEntry.equipment_id &&
-          e.checklist_frequency_id === fullEntry.checklist_frequency_id &&
-          (e.period_key || '') === (fullEntry.period_key || '') &&
-          (e.shift || '') === (fullEntry.shift || '')
+          Number(e.equipment_id) === Number(fullEntry.equipment_id) &&
+          Number(e.checklist_frequency_id) === Number(fullEntry.checklist_frequency_id) &&
+          (e.period_key || '').trim() === (fullEntry.period_key || '').trim() &&
+          normalizeShift(e.shift) === normalizeShift(fullEntry.shift)
       );
 
       if (existingIndex >= 0) {
@@ -397,14 +424,20 @@ export default function App() {
           setPreventiveEntries((prev) => {
             const idx = prev.findIndex(
               (e) =>
-                e.equipment_id === cloudRecord.equipment_id &&
-                e.checklist_frequency_id === cloudRecord.checklist_frequency_id &&
-                (e.period_key || '') === (cloudRecord.period_key || '') &&
-                (e.shift || '') === (cloudRecord.shift || '')
+                Number(e.equipment_id) === Number(cloudRecord.equipment_id) &&
+                Number(e.checklist_frequency_id) === Number(cloudRecord.checklist_frequency_id) &&
+                (e.period_key || '').trim() === (cloudRecord.period_key || '').trim() &&
+                normalizeShift(e.shift) === normalizeShift(cloudRecord.shift)
             );
             if (idx >= 0) {
               const updated = [...prev];
-              updated[idx] = { ...updated[idx], ...cloudRecord, synced: true };
+              updated[idx] = {
+                ...updated[idx],
+                ...cloudRecord,
+                equipment_id: Number(cloudRecord.equipment_id),
+                checklist_frequency_id: Number(cloudRecord.checklist_frequency_id),
+                synced: true,
+              };
               return updated;
             }
             return prev;
@@ -555,6 +588,14 @@ export default function App() {
 
   const activePreventiveEntries = getActivePreventiveRecords(preventiveEntries, activeContext);
   const activeCorrectiveReports = getActiveCorrectiveReports(correctiveReports, activeContext);
+
+  useEffect(() => {
+    const harianActiveCount = activePreventiveEntries.filter((e) => Number(e.checklist_frequency_id) === 1).length;
+    const mingguanActiveCount = activePreventiveEntries.filter((e) => Number(e.checklist_frequency_id) === 2).length;
+    console.log(`[CloudSync] Active after context filter: ${activePreventiveEntries.length}`);
+    console.log(`[CloudSync] Harian active: ${harianActiveCount}`);
+    console.log(`[CloudSync] Mingguan active: ${mingguanActiveCount}`);
+  }, [activePreventiveEntries]);
 
   // Structured Report Builder Data
   const structuredReportData = buildStructuredReportData(
