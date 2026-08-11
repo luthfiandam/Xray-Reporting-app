@@ -48,7 +48,7 @@ jobs:
         env:
           VITE_BASE_PATH: ./
           VITE_GAS_API_URL: ${{ vars.VITE_GAS_API_URL }}
-
+          
       - name: Upload Artifact
         uses: actions/upload-pages-artifact@v3
         with:

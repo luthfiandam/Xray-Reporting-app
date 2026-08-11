@@ -41,6 +41,7 @@ import {
 } from 'lucide-react';
 import { generatePhotoCollageUrl } from '../utils/collageService';
 import { getPeriodKey } from '../utils/periodUtils';
+import { normalizeShift } from '../utils/contextFilter';
 
 interface PreventiveViewProps {
   equipments: Equipment[];
@@ -188,12 +189,16 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
   const currentPeriodKey = getPeriodKey(Number(selectedFrequencyId), operationalDate);
 
   // Check if selected equipment already has an entry submitted today for the selected interval
-  const existingEntry = preventiveEntries.find(
-    (pe) =>
-      pe.equipment_id === Number(selectedEquipmentId) &&
-      pe.checklist_frequency_id === Number(selectedFrequencyId) &&
-      (pe.shift || '') === (shift || '') &&
-      (pe.period_key || '') === (currentPeriodKey || '')
+  const isMatchingContextEntry = (pe: PreventiveEntry, eqId: number, freqId: number, targetPeriodKey: string) => {
+    if (pe.equipment_id !== eqId) return false;
+    if (pe.checklist_frequency_id !== freqId) return false;
+    if (normalizeShift(pe.shift) !== normalizeShift(shift)) return false;
+    const peKey = (pe.period_key || '').trim() || (pe.operational_date ? getPeriodKey(freqId, pe.operational_date) : '');
+    return peKey === targetPeriodKey;
+  };
+
+  const existingEntry = preventiveEntries.find((pe) =>
+    isMatchingContextEntry(pe, Number(selectedEquipmentId), Number(selectedFrequencyId), currentPeriodKey)
   );
 
   // Load existing entry when equipment changes or reset form defaults
@@ -201,12 +206,8 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
     if (!selectedEquipmentId || !selectedEquipment) return;
     setMobileStep(1);
 
-    const entry = preventiveEntries.find(
-      (pe) =>
-        pe.equipment_id === Number(selectedEquipmentId) &&
-        pe.checklist_frequency_id === Number(selectedFrequencyId) &&
-        (pe.shift || '') === (shift || '') &&
-        (pe.period_key || '') === (currentPeriodKey || '')
+    const entry = preventiveEntries.find((pe) =>
+      isMatchingContextEntry(pe, Number(selectedEquipmentId), Number(selectedFrequencyId), currentPeriodKey)
     );
 
     if (entry) {
@@ -769,19 +770,11 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
 
   // 2. Sort them: unsubmitted first, submitted last (preserving master sequence order)
   const filteredEquipments = [...baseCategoryEquipments].sort((a, b) => {
-    const hasEntryA = preventiveEntries.some(
-      (pe) =>
-        pe.equipment_id === a.id &&
-        pe.checklist_frequency_id === Number(selectedFrequencyId) &&
-        (pe.shift || '') === (shift || '') &&
-        (pe.period_key || '') === (currentPeriodKey || '')
+    const hasEntryA = preventiveEntries.some((pe) =>
+      isMatchingContextEntry(pe, a.id, Number(selectedFrequencyId), currentPeriodKey)
     );
-    const hasEntryB = preventiveEntries.some(
-      (pe) =>
-        pe.equipment_id === b.id &&
-        pe.checklist_frequency_id === Number(selectedFrequencyId) &&
-        (pe.shift || '') === (shift || '') &&
-        (pe.period_key || '') === (currentPeriodKey || '')
+    const hasEntryB = preventiveEntries.some((pe) =>
+      isMatchingContextEntry(pe, b.id, Number(selectedFrequencyId), currentPeriodKey)
     );
 
     if (hasEntryA === hasEntryB) {
@@ -795,52 +788,30 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
     return hasEntryA ? 1 : -1;
   });
 
+  // Helper for counting completed entries per frequency interval
+  const countCompletedForFreq = (freqId: number) => {
+    const targetKey = getPeriodKey(freqId, operationalDate);
+    const uniqueEquips = new Set<number>();
+    preventiveEntries.forEach((pe) => {
+      if (isMatchingContextEntry(pe, pe.equipment_id, freqId, targetKey)) {
+        uniqueEquips.add(pe.equipment_id);
+      }
+    });
+    return uniqueEquips.size;
+  };
+
   // Calculate completed count for each interval
-  const harianCount = preventiveEntries.filter(
-    (pe) =>
-      pe.checklist_frequency_id === 1 &&
-      (pe.shift || '') === (shift || '') &&
-      (pe.period_key || '') === (getPeriodKey(1, operationalDate) || '')
-  ).length;
-  const mingguanCount = preventiveEntries.filter(
-    (pe) =>
-      pe.checklist_frequency_id === 2 &&
-      (pe.shift || '') === (shift || '') &&
-      (pe.period_key || '') === (getPeriodKey(2, operationalDate) || '')
-  ).length;
-  const bulananCount = preventiveEntries.filter(
-    (pe) =>
-      pe.checklist_frequency_id === 3 &&
-      (pe.shift || '') === (shift || '') &&
-      (pe.period_key || '') === (getPeriodKey(3, operationalDate) || '')
-  ).length;
-  const triwulanCount = preventiveEntries.filter(
-    (pe) =>
-      pe.checklist_frequency_id === 4 &&
-      (pe.shift || '') === (shift || '') &&
-      (pe.period_key || '') === (getPeriodKey(4, operationalDate) || '')
-  ).length;
-  const semesteranCount = preventiveEntries.filter(
-    (pe) =>
-      pe.checklist_frequency_id === 5 &&
-      (pe.shift || '') === (shift || '') &&
-      (pe.period_key || '') === (getPeriodKey(5, operationalDate) || '')
-  ).length;
-  const tahunanCount = preventiveEntries.filter(
-    (pe) =>
-      pe.checklist_frequency_id === 6 &&
-      (pe.shift || '') === (shift || '') &&
-      (pe.period_key || '') === (getPeriodKey(6, operationalDate) || '')
-  ).length;
+  const harianCount = countCompletedForFreq(1);
+  const mingguanCount = countCompletedForFreq(2);
+  const bulananCount = countCompletedForFreq(3);
+  const triwulanCount = countCompletedForFreq(4);
+  const semesteranCount = countCompletedForFreq(5);
+  const tahunanCount = countCompletedForFreq(6);
 
   // Get status badge for machine card (per interval)
   const getMachineIntervalStatusBadge = (eqId: number) => {
-    const hasEntry = preventiveEntries.some(
-      (pe) =>
-        pe.equipment_id === eqId &&
-        pe.checklist_frequency_id === Number(selectedFrequencyId) &&
-        (pe.shift || '') === (shift || '') &&
-        (pe.period_key || '') === (currentPeriodKey || '')
+    const hasEntry = preventiveEntries.some((pe) =>
+      isMatchingContextEntry(pe, eqId, Number(selectedFrequencyId), currentPeriodKey)
     );
     if (hasEntry) {
       return {
@@ -856,17 +827,7 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
 
   // Get status badge for machine card
   const getMachineStatusBadge = (eqId: number) => {
-    const hasEntryToday = preventiveEntries.some((pe) => pe.equipment_id === eqId);
-    if (hasEntryToday) {
-      return {
-        label: 'Selesai Hari Ini',
-        className: 'bg-blue-100 text-blue-700 border border-blue-200',
-      };
-    }
-    return {
-      label: 'Siap Diperiksa',
-      className: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
-    };
+    return getMachineIntervalStatusBadge(eqId);
   };
 
   // =========================================================================

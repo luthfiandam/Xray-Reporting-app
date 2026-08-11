@@ -11,6 +11,7 @@ import {
 } from '../types';
 import { getOperationalShiftForCorrective } from '../utils/technicianSchedule';
 import { formatIndonesianDate, formatTimeShort, formatTimeRange } from '../utils/timeFormat';
+import { getActivePreventiveRecords, getActiveCorrectiveReports } from '../utils/contextFilter';
 
 export function formatDateIndonesian(dateString: string): string {
   return formatIndonesianDate(dateString, { includeDayName: true });
@@ -25,12 +26,25 @@ export function buildStructuredReportData(
   correctiveReports: CorrectiveReport[] = [],
   locations: Location[] = []
 ): StructuredReportData {
+  // Ensure we only process entries and corrective reports that belong strictly to the session's active context and deduplicate in memory
+  const sanitizedEntries = getActivePreventiveRecords(entries, {
+    datasetId: session.dataset_id,
+    operationalDate: session.operational_date,
+    shift: session.shift,
+  });
+
+  const sanitizedCorrectives = getActiveCorrectiveReports(correctiveReports, {
+    datasetId: session.dataset_id,
+    operationalDate: session.operational_date,
+    shift: session.shift,
+  });
+
   const techNames = session.technician_ids
     .map((id) => technicians.find((t) => t.id === id)?.name)
     .filter(Boolean) as string[];
 
   // Find min & max submit times or fallback to session start/end
-  const submitTimes = entries.map((e) => e.submitted_at).sort();
+  const submitTimes = sanitizedEntries.map((e) => e.submitted_at).sort();
   const startTime = submitTimes.length > 0 ? submitTimes[0] : session.started_at;
   const endTime =
     submitTimes.length > 0 ? submitTimes[submitTimes.length - 1] : session.ended_at;
@@ -43,7 +57,7 @@ export function buildStructuredReportData(
 
   for (const type of sortedTypes) {
     // Find all entries of this equipment type
-    const typeEntries = entries
+    const typeEntries = sanitizedEntries
       .filter((e) => {
         const eq = equipments.find((eqItem) => eqItem.id === e.equipment_id);
         return eq?.equipment_type_id === type.id;
@@ -85,7 +99,7 @@ export function buildStructuredReportData(
   }
 
   // Filter corrective reports for this operational shift
-  const filteredCorrectives = (correctiveReports || []).filter((report) => {
+  const filteredCorrectives = (sanitizedCorrectives || []).filter((report) => {
     const shiftInfo = getOperationalShiftForCorrective(report);
     return (
       shiftInfo.operationalDate === session.operational_date &&
@@ -250,7 +264,7 @@ export function generateWhatsAppReportText(data: StructuredReportData, targetFre
           if (isHarianExclusion) {
             const formattedName = `XRAY ${item.equipment_name.toUpperCase()}`;
             text += `⦁ *${formattedName}*\n`;
-            text += `## Sudah dilakukan pengecekan dan pembersihan. Equipment bisa digunakan dengan normal.\n`;
+            text += `Sudah dilakukan pengecekan dan pembersihan. Equipment bisa digunakan dengan normal.\n`;
           } else {
             text += `⦁ *${item.equipment_name}*\n`;
             text += `Hasil pengecekan\n`;

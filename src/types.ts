@@ -55,6 +55,7 @@ export type ShiftType = 'Pagi' | 'Malam';
 
 export interface PreventiveSession {
   id: number;
+  dataset_id?: string;
   operational_date: string; // YYYY-MM-DD
   shift: ShiftType;
   started_at: string; // HH:mm

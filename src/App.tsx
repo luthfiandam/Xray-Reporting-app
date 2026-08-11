@@ -24,6 +24,7 @@ import {
   INITIAL_CORRECTIVE_REPORTS,
 } from './data/initialData';
 import { buildStructuredReportData } from './services/reportService';
+import { getActivePreventiveRecords, getActiveCorrectiveReports } from './utils/contextFilter';
 import { getOperationalShift, getDefaultTechniciansForShift } from './utils/technicianSchedule';
 import {
   isCloudConfigured,
@@ -545,13 +546,15 @@ export default function App() {
     setLocations((prev) => [...prev, newLoc]);
   };
 
-  // Active Dataset Filtered Records
-  const activePreventiveEntries = preventiveEntries.filter(
-    (e) => (e.dataset_id || 'default') === activeDatasetId
-  );
-  const activeCorrectiveReports = correctiveReports.filter(
-    (r) => (r.dataset_id || 'default') === activeDatasetId
-  );
+  // Active Context Filtered & Deduplicated Records
+  const activeContext = {
+    datasetId: activeDatasetId,
+    operationalDate: currentSession.operational_date,
+    shift: currentSession.shift,
+  };
+
+  const activePreventiveEntries = getActivePreventiveRecords(preventiveEntries, activeContext);
+  const activeCorrectiveReports = getActiveCorrectiveReports(correctiveReports, activeContext);
 
   // Structured Report Builder Data
   const structuredReportData = buildStructuredReportData(
