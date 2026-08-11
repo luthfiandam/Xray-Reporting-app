@@ -78,7 +78,7 @@ export function getReportPdfArchivePathAndFilename(
 
   const periodKey = getPeriodKey(targetFrequencyId, isoDateStr);
 
-  const root = 'laporan';
+  const root = 'XRAY REPORTING APP/1. Laporan';
   let folderPath = '';
   let fileName = '';
   let intervalName = 'Harian';

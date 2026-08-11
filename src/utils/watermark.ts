@@ -75,24 +75,15 @@ export function generateDriveFileName(
 /**
  * Builds Google Drive structured folder path per specifications:
  *
- * PREVENTIVE:
- * foto
- * └── {Category Folder} (e.g. Foto Laporan Harian, Foto Laporan Mingguan, etc.)
- *     └── {YYYY}
- *         └── {MM. NamaBulan YYYY}
- *             └── {DD NamaBulan}
- *                 └── {Shift}
- *                     └── {Jenis Equipment} - {Lokasi Equipment}
- *
- * CORRECTIVE:
- * foto
- * └── Foto Laporan Harian
- *     └── Foto Laporan Corrective
- *         └── {YYYY}
- *             └── {MM. NamaBulan YYYY}
- *                 └── {DD NamaBulan}
- *                     └── {Shift}
- *                         └── {Jenis Equipment} - {Lokasi Equipment}
+ * XRAY REPORTING APP/
+ * └── 2. Foto Laporan/
+ *     ├── 1. Foto Laporan Harian/
+ *     ├── 1.1 Foto Laporan Corrective/
+ *     ├── 2. Foto Laporan Mingguan/
+ *     ├── 3. Foto Laporan Bulanan/
+ *     ├── 4. Foto Laporan Triwulan/
+ *     ├── 5. Foto Laporan Semesteran/
+ *     └── 6. Foto Laporan Tahunan/
  */
 export function buildDriveFolderPath(options: {
   reportType: 'PREVENTIVE' | 'CORRECTIVE';
@@ -103,7 +94,7 @@ export function buildDriveFolderPath(options: {
   locationName?: string;    // "SCP LINE E"
   equipmentName?: string;   // "X-RAY HEIMANN"
 }): string {
-  const root = 'foto';
+  const root = 'XRAY REPORTING APP/2. Foto Laporan';
 
   let categoryFolder = '1. Foto Laporan Harian';
   if (options.reportType === 'CORRECTIVE') {

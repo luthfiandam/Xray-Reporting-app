@@ -16,7 +16,9 @@
 
 const PREVENTIVE_TAB = "Preventive_Records";
 const CORRECTIVE_TAB = "Corrective_Records";
-const DRIVE_ROOT_FOLDER = "foto";
+const APP_ROOT_FOLDER = "XRAY REPORTING APP";
+const DRIVE_ROOT_FOLDER = "XRAY REPORTING APP/2. Foto Laporan";
+const DRIVE_PDF_ROOT_FOLDER = "XRAY REPORTING APP/1. Laporan";
 
 // Helper for cleaning file & folder names
 function sanitizeFileName(str) {
@@ -58,7 +60,7 @@ function generateDriveFileName(locationOrEquipment, timeStr, dateStr, index) {
   return sanitized + "_" + hhmm + "_" + ddmmyy + sfx + ".jpg";
 }
 
-// Build Preventive Folder Path: foto/{CategoryFolder}/{YYYY}/{MM. NamaBulan YYYY}/{DD NamaBulan}/{Shift}/{Jenis Equipment} - {Lokasi Equipment}
+// Build Preventive Folder Path: XRAY REPORTING APP/2. Foto Laporan/{CategoryFolder}/{YYYY}/{MM. NamaBulan YYYY}/{DD NamaBulan}/{Shift}/{Jenis Equipment} - {Lokasi Equipment}
 function buildPreventiveFolderPath(record) {
   if (record && record.folder_path) {
     return record.folder_path;
@@ -93,7 +95,7 @@ function buildPreventiveFolderPath(record) {
   return DRIVE_ROOT_FOLDER + "/" + categoryFolder + "/" + year + "/" + monthFolder + "/" + dayFolder + "/" + shiftFolder + "/" + eqLocFolder;
 }
 
-// Build Corrective Folder Path: foto/1.1 Foto Laporan Corrective/{YYYY}/{MM. NamaBulan YYYY}/{DD NamaBulan}/{Shift}/{Jenis Equipment} - {Lokasi Equipment}
+// Build Corrective Folder Path: XRAY REPORTING APP/2. Foto Laporan/1.1 Foto Laporan Corrective/{YYYY}/{MM. NamaBulan YYYY}/{DD NamaBulan}/{Shift}/{Jenis Equipment} - {Lokasi Equipment}
 function buildCorrectiveFolderPath(record) {
   if (record && record.folder_path) {
     return record.folder_path;
@@ -259,7 +261,7 @@ function savePdfToDrive(base64Data, folderPath, fileName) {
     var bytes = Utilities.base64Decode(base64String);
     var blob = Utilities.newBlob(bytes, "application/pdf", fileName || "laporan.pdf");
 
-    var targetFolder = getOrCreateFolder(folderPath || "laporan");
+    var targetFolder = getOrCreateFolder(folderPath || (DRIVE_PDF_ROOT_FOLDER + "/1. Laporan Harian"));
 
     // Check for existing file with same name to prevent duplicates
     var existingFiles = targetFolder.getFilesByName(fileName);
