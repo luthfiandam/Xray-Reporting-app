@@ -491,12 +491,6 @@ function savePreventiveRecord(record) {
     return { success: false, message: "Invalid preventive record payload: missing equipment_id or checklist_frequency_id" };
   }
 
-  var sheet = getPreventiveSheet();
-  ensureDatasetColumnExists(sheet);
-
-  var data = sheet.getDataRange().getValues();
-  var headers = data[0];
-
   var targetDsId = (record.dataset_id && String(record.dataset_id).trim()) ? String(record.dataset_id).trim() : "default";
   record.dataset_id = targetDsId;
 
@@ -557,70 +551,99 @@ function savePreventiveRecord(record) {
   var freqId = Number(record.checklist_frequency_id);
   var periodKey = String(record.period_key || "").trim();
   var shiftCode = normalizeShiftCode(record.shift);
-  var dsColIdx = headers.indexOf("dataset_id");
-  var recordIdColIdx = headers.indexOf("record_id");
 
-  // Deterministic matching:
-  // 1. Check exact record_id match
-  // 2. Fallback to canonical tuple match: (equipment_id, checklist_frequency_id, period_key, shift, dataset_id)
-  var existingRowIndex = -1;
-  for (var r = 1; r < data.length; r++) {
-    var row = data[r];
-    var rowRecordId = recordIdColIdx !== -1 ? Number(row[recordIdColIdx]) : Number(row[0]);
-    var rEq = Number(row[headers.indexOf("equipment_id")]);
-    var rFreq = Number(row[headers.indexOf("checklist_frequency_id")]);
-    var rPeriod = String(row[headers.indexOf("period_key")] || "").trim();
-    var rShift = normalizeShiftCode(row[headers.indexOf("shift")]);
-    var rDs = dsColIdx !== -1 ? (String(row[dsColIdx] || "").trim() || "default") : "default";
-
-    if (rDs !== targetDsId) continue;
-
-    if (reqId && rowRecordId && reqId === rowRecordId) {
-      existingRowIndex = r + 1;
-      break;
-    }
-
-    if (rEq === eqId && rFreq === freqId && rPeriod === periodKey && rShift === shiftCode) {
-      existingRowIndex = r + 1;
-      break;
-    }
+  // SERVER-SIDE CONCURRENCY PROTECTION VIA SCRIPT LOCK
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+  } catch (lockErr) {
+    Logger.log("Preventive lock timeout: " + lockErr);
+    return {
+      success: false,
+      message: "Server is busy processing another request. Please retry in a few seconds."
+    };
   }
 
-  var rowValues = [
-    record.id,
-    record.dataset_id,
-    record.equipment_id,
-    record.equipment_code || "",
-    record.equipment_name || "",
-    record.equipment_type || "",
-    record.checklist_frequency_id,
-    record.period_key || "",
-    record.operational_date || "",
-    record.shift || "",
-    record.preventive_session_id || 1,
-    record.sequence || 1,
-    record.submitted_at || "",
-    JSON.stringify(record.submitted_by_technician_ids || []),
-    record.status || "OK",
-    record.notes || "",
-    JSON.stringify(record.checklist_results || []),
-    JSON.stringify(record.measurements || []),
-    JSON.stringify(record.evidences || []),
-    record.created_at,
-    record.updated_at
-  ];
+  try {
+    var sheet = getPreventiveSheet();
+    ensureDatasetColumnExists(sheet);
 
-  if (existingRowIndex > 0) {
-    sheet.getRange(existingRowIndex, 1, 1, rowValues.length).setValues([rowValues]);
-  } else {
-    sheet.appendRow(rowValues);
+    var data = sheet.getDataRange().getValues();
+    var headers = data[0];
+
+    var dsColIdx = headers.indexOf("dataset_id");
+    var recordIdColIdx = headers.indexOf("record_id");
+
+    // Deterministic matching:
+    // 1. Check exact record_id match
+    // 2. Fallback to canonical tuple match: (dataset_id, equipment_id, checklist_frequency_id, period_key, shift)
+    var existingRowIndex = -1;
+    for (var r = 1; r < data.length; r++) {
+      var row = data[r];
+      var rowRecordId = recordIdColIdx !== -1 ? Number(row[recordIdColIdx]) : Number(row[0]);
+      var rEq = Number(row[headers.indexOf("equipment_id")]);
+      var rFreq = Number(row[headers.indexOf("checklist_frequency_id")]);
+      var rPeriod = String(row[headers.indexOf("period_key")] || "").trim();
+      var rShift = normalizeShiftCode(row[headers.indexOf("shift")]);
+      var rDs = dsColIdx !== -1 ? (String(row[dsColIdx] || "").trim() || "default") : "default";
+
+      if (rDs !== targetDsId) continue;
+
+      if (reqId && rowRecordId && reqId === rowRecordId) {
+        existingRowIndex = r + 1;
+        break;
+      }
+
+      if (rEq === eqId && rFreq === freqId && rPeriod === periodKey && rShift === shiftCode) {
+        existingRowIndex = r + 1;
+        break;
+      }
+    }
+
+    var rowValues = [
+      record.id,
+      record.dataset_id,
+      record.equipment_id,
+      record.equipment_code || "",
+      record.equipment_name || "",
+      record.equipment_type || "",
+      record.checklist_frequency_id,
+      record.period_key || "",
+      record.operational_date || "",
+      record.shift || "",
+      record.preventive_session_id || 1,
+      record.sequence || 1,
+      record.submitted_at || "",
+      JSON.stringify(record.submitted_by_technician_ids || []),
+      record.status || "OK",
+      record.notes || "",
+      JSON.stringify(record.checklist_results || []),
+      JSON.stringify(record.measurements || []),
+      JSON.stringify(record.evidences || []),
+      record.created_at,
+      record.updated_at
+    ];
+
+    if (existingRowIndex > 0) {
+      sheet.getRange(existingRowIndex, 1, 1, rowValues.length).setValues([rowValues]);
+    } else {
+      sheet.appendRow(rowValues);
+    }
+
+    SpreadsheetApp.flush();
+
+    return {
+      success: true,
+      message: existingRowIndex > 0 ? "Preventive record updated successfully" : "Preventive record created successfully",
+      data: record
+    };
+  } finally {
+    try {
+      lock.releaseLock();
+    } catch (relErr) {
+      Logger.log("Error releasing preventive script lock: " + relErr);
+    }
   }
-
-  return {
-    success: true,
-    message: existingRowIndex > 0 ? "Preventive record updated successfully" : "Preventive record created successfully",
-    data: record
-  };
 }
 
 function normalizeShiftCode(shiftStr) {
@@ -805,12 +828,6 @@ function saveCorrectiveRecord(record) {
     return { success: false, message: "Invalid corrective payload" };
   }
 
-  var sheet = getCorrectiveSheet();
-  ensureDatasetColumnExists(sheet);
-
-  var data = sheet.getDataRange().getValues();
-  var headers = data[0];
-
   var targetDsId = (record.dataset_id && String(record.dataset_id).trim()) ? String(record.dataset_id).trim() : "default";
   record.dataset_id = targetDsId;
 
@@ -862,56 +879,89 @@ function saveCorrectiveRecord(record) {
   if (!record.id) record.id = Date.now();
 
   var recId = Number(record.id);
-  var corrCode = String(record.corrective_code || "");
-  var dsColIdx = headers.indexOf("dataset_id");
+  var corrCode = String(record.corrective_code || "").trim();
 
-  var existingRowIndex = -1;
-  for (var r = 1; r < data.length; r++) {
-    var rowId = Number(data[r][headers.indexOf("record_id")]);
-    var rowCode = String(data[r][headers.indexOf("corrective_code")] || "");
-    var rDs = dsColIdx !== -1 ? (String(data[r][dsColIdx] || "").trim() || "default") : "default";
+  // SERVER-SIDE CONCURRENCY PROTECTION VIA SCRIPT LOCK
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+  } catch (lockErr) {
+    Logger.log("Corrective lock timeout: " + lockErr);
+    return {
+      success: false,
+      message: "Server is busy processing another request. Please retry in a few seconds."
+    };
+  }
 
-    if ((rowId === recId || (corrCode && rowCode === corrCode)) && rDs === targetDsId) {
-      existingRowIndex = r + 1;
-      break;
+  try {
+    var sheet = getCorrectiveSheet();
+    ensureDatasetColumnExists(sheet);
+
+    var data = sheet.getDataRange().getValues();
+    var headers = data[0];
+
+    var dsColIdx = headers.indexOf("dataset_id");
+    var recordIdColIdx = headers.indexOf("record_id");
+    var corrCodeColIdx = headers.indexOf("corrective_code");
+
+    var existingRowIndex = -1;
+    for (var r = 1; r < data.length; r++) {
+      var rowId = recordIdColIdx !== -1 ? Number(data[r][recordIdColIdx]) : Number(data[r][0]);
+      var rowCode = corrCodeColIdx !== -1 ? String(data[r][corrCodeColIdx] || "").trim() : "";
+      var rDs = dsColIdx !== -1 ? (String(data[r][dsColIdx] || "").trim() || "default") : "default";
+
+      if (rDs !== targetDsId) continue;
+
+      if ((recId && rowId === recId) || (corrCode && rowCode === corrCode)) {
+        existingRowIndex = r + 1;
+        break;
+      }
+    }
+
+    var rowValues = [
+      record.id,
+      record.dataset_id,
+      record.corrective_code || "",
+      record.corrective_date || "",
+      record.shift || "",
+      record.equipment_id || "",
+      record.equipment_name || "",
+      record.equipment_type || "",
+      record.location_id || "",
+      record.problem_description || "",
+      record.action_taken || "",
+      record.result || "Resolved",
+      record.result_text || "",
+      record.start_time || "",
+      record.end_time || "",
+      JSON.stringify(record.technicians || []),
+      record.created_by || "",
+      record.notes || "",
+      JSON.stringify(record.evidences || []),
+      record.created_at,
+      record.updated_at
+    ];
+
+    if (existingRowIndex > 0) {
+      sheet.getRange(existingRowIndex, 1, 1, rowValues.length).setValues([rowValues]);
+    } else {
+      sheet.appendRow(rowValues);
+    }
+
+    SpreadsheetApp.flush();
+
+    return {
+      success: true,
+      message: existingRowIndex > 0 ? "Corrective record updated successfully" : "Corrective record created successfully",
+      data: record
+    };
+  } finally {
+    try {
+      lock.releaseLock();
+    } catch (relErr) {
+      Logger.log("Error releasing corrective script lock: " + relErr);
     }
   }
-
-  var rowValues = [
-    record.id,
-    record.dataset_id,
-    record.corrective_code || "",
-    record.corrective_date || "",
-    record.shift || "",
-    record.equipment_id || "",
-    record.equipment_name || "",
-    record.equipment_type || "",
-    record.location_id || "",
-    record.problem_description || "",
-    record.action_taken || "",
-    record.result || "Resolved",
-    record.result_text || "",
-    record.start_time || "",
-    record.end_time || "",
-    JSON.stringify(record.technicians || []),
-    record.created_by || "",
-    record.notes || "",
-    JSON.stringify(record.evidences || []),
-    record.created_at,
-    record.updated_at
-  ];
-
-  if (existingRowIndex > 0) {
-    sheet.getRange(existingRowIndex, 1, 1, rowValues.length).setValues([rowValues]);
-  } else {
-    sheet.appendRow(rowValues);
-  }
-
-  return {
-    success: true,
-    message: existingRowIndex > 0 ? "Corrective record updated successfully" : "Corrective record created successfully",
-    data: record
-  };
 }
 
 function handlePhotoUpload(base64Data, folderPath, fileName, photoType) {

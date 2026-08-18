@@ -51,7 +51,7 @@ interface PreventiveViewProps {
   checklistItems: ChecklistItem[];
   preventiveEntries: PreventiveEntry[];
   preSelectedEquipmentId?: number | null;
-  onSubmitEntry: (entry: Omit<PreventiveEntry, 'id'>) => void;
+  onSubmitEntry: (entry: Omit<PreventiveEntry, 'id'>) => void | Promise<void>;
   onBackToDashboard: () => void;
   role: Role;
   operationalDate?: string;
@@ -114,6 +114,7 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
   const [collageUrl, setCollageUrl] = useState<string | null>(null);
   const [isGeneratingCollage, setIsGeneratingCollage] = useState(false);
   const [showCollageModal, setShowCollageModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [successPopupInfo, setSuccessPopupInfo] = useState<{
     show: boolean;
     typeName: string;
@@ -547,215 +548,225 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (isSubmitting) return;
+
     if (!selectedEquipment) {
       alert('Silakan pilih mesin terlebih dahulu.');
       return;
     }
 
-    const nextSequence = preventiveEntries.length + 1;
+    setIsSubmitting(true);
+    try {
+      const nextSequence = preventiveEntries.length + 1;
 
-    // Measurements array
-    const measurements: MeasurementValue[] = [];
-    if (isXRay && !isHidingMeasurements) {
-      if (viewType === 'single') {
-        measurements.push(genBMeasurement);
-      } else {
-        measurements.push(genAMeasurement, genBMeasurement);
+      // Measurements array
+      const measurements: MeasurementValue[] = [];
+      if (isXRay && !isHidingMeasurements) {
+        if (viewType === 'single') {
+          measurements.push(genBMeasurement);
+        } else {
+          measurements.push(genAMeasurement, genBMeasurement);
+        }
       }
-    }
 
-    // Checklist results array
-    const resultsArray: ChecklistResult[] = relevantChecklistItems.map((item) => ({
-      checklist_item_id: item.id,
-      description: item.description,
-      status: checklistResults[item.id] || 'Baik',
-    }));
+      // Checklist results array
+      const resultsArray: ChecklistResult[] = relevantChecklistItems.map((item) => ({
+        checklist_item_id: item.id,
+        description: item.description,
+        status: checklistResults[item.id] || 'Baik',
+      }));
 
-    // Current time
-    const now = new Date();
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const timeString = `${hours}:${minutes}`;
+      // Current time
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const timeString = `${hours}:${minutes}`;
 
-    // Evidences array
-    const evidencesList: { id: number; file_path: string; caption: string }[] = [];
+      // Evidences array
+      const evidencesList: { id: number; file_path: string; caption: string }[] = [];
 
-    const dateStr = new Date().toLocaleDateString('id-ID', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    });
+      const dateStr = new Date().toLocaleDateString('id-ID', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
 
-    const formatSessionDate = (dString: string) => {
-      if (!dString) return '';
-      if (dString.includes('Jan') || dString.includes('Agt') || dString.includes('Aug') || dString.includes('Agustus') || dString.includes('Feb') || dString.includes('Mar')) {
+      const formatSessionDate = (dString: string) => {
+        if (!dString) return '';
+        if (dString.includes('Jan') || dString.includes('Agt') || dString.includes('Aug') || dString.includes('Agustus') || dString.includes('Feb') || dString.includes('Mar')) {
+          return dString;
+        }
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agt', 'Sep', 'Okt', 'Nov', 'Des'];
+        if (dString.includes('-')) {
+          const parts = dString.split('-');
+          if (parts.length === 3) {
+            const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+            if (!isNaN(d.getTime())) {
+              return `${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()}`;
+            }
+          }
+        }
         return dString;
-      }
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agt', 'Sep', 'Okt', 'Nov', 'Des'];
-      if (dString.includes('-')) {
-        const parts = dString.split('-');
-        if (parts.length === 3) {
-          const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-          if (!isNaN(d.getTime())) {
-            return `${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()}`;
+      };
+
+      const finalDateStr = operationalDate ? formatSessionDate(operationalDate) : dateStr;
+
+      if (isXRay) {
+        const xrayPhotos: { key: string; title: string; dataUrl: string }[] = [];
+        if (!isHidingMeasurements && photoDocs.tegangan) {
+          xrayPhotos.push({ key: 'tegangan', title: '1. Foto Tegangan', dataUrl: photoDocs.tegangan });
+        }
+        if (photoDocs.report) {
+          xrayPhotos.push({
+            key: 'report',
+            title: isHidingMeasurements ? '1. Foto Report' : '2. Foto Report',
+            dataUrl: photoDocs.report
+          });
+        }
+        if (!isHidingMeasurements && photoDocs.sinyal_gen_a) {
+          xrayPhotos.push({ key: 'sinyal_gen_a', title: '3. Foto Sinyal Gen A', dataUrl: photoDocs.sinyal_gen_a });
+        }
+        if (!isHidingMeasurements && photoDocs.sinyal_gen_b) {
+          xrayPhotos.push({ key: 'sinyal_gen_b', title: '4. Foto Sinyal Gen B', dataUrl: photoDocs.sinyal_gen_b });
+        }
+        if (photoDocs.bebersih && photoDocs.bebersih.length > 0) {
+          photoDocs.bebersih.forEach((url, idx) => {
+            xrayPhotos.push({
+              key: `bebersih_${idx}`,
+              title: isHidingMeasurements ? `2. Bebersih ${idx + 1}` : `5. Bebersih ${idx + 1}`,
+              dataUrl: url
+            });
+          });
+        }
+
+        if (xrayPhotos.length > 0) {
+          // Save individual photos first
+          xrayPhotos.forEach((item, idx) => {
+            evidencesList.push({
+              id: Date.now() + idx,
+              file_path: item.dataUrl,
+              caption: item.title,
+            });
+          });
+
+          try {
+            const collageUrl = await generatePhotoCollageUrl({
+              equipmentName: selectedEquipment.name,
+              equipmentCode: selectedEquipment.equipment_code,
+              serialNumber: selectedEquipment.serial_number,
+              date: finalDateStr,
+              shift: shift || 'Shift 1',
+              technicians: ['Technician Duty'],
+              photos: xrayPhotos,
+            });
+            evidencesList.push({
+              id: Date.now() + 1000,
+              file_path: collageUrl,
+              caption: 'Dokumentasi Maintenance X-Ray (Kolase)',
+            });
+
+            // Automatic download
+            const link = document.createElement('a');
+            link.href = collageUrl;
+            link.download = `Collage_${selectedEquipment.equipment_code}_${finalDateStr.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          } catch (err) {
+            console.error('Gagal membuat kolase XRay:', err);
+          }
+        }
+      } else {
+        const photos = photoDocs.bebersih || [];
+        if (photos.length > 0) {
+          // Save individual photos first
+          photos.forEach((url, idx) => {
+            evidencesList.push({
+              id: Date.now() + idx,
+              file_path: url,
+              caption: `Dokumentasi Bebersih ${idx + 1}`,
+            });
+          });
+
+          try {
+            const collageUrl = await generatePhotoCollageUrl({
+              equipmentName: selectedEquipment.name,
+              equipmentCode: selectedEquipment.equipment_code,
+              serialNumber: selectedEquipment.serial_number,
+              date: finalDateStr,
+              shift: shift || 'Shift 1',
+              technicians: ['Technician Duty'],
+              photos: photos.map((url, idx) => ({
+                key: `cleaning_${idx}`,
+                title: `Dokumentasi ${idx + 1}`,
+                dataUrl: url,
+              })),
+            });
+            evidencesList.push({
+              id: Date.now() + 1000,
+              file_path: collageUrl,
+              caption: 'Dokumentasi Kegiatan / Pembersihan (Kolase)',
+            });
+
+            // Automatic download
+            const link = document.createElement('a');
+            link.href = collageUrl;
+            link.download = `Collage_${selectedEquipment.equipment_code}_${finalDateStr.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          } catch (err) {
+            console.error('Gagal membuat kolase:', err);
           }
         }
       }
-      return dString;
-    };
 
-    const finalDateStr = operationalDate ? formatSessionDate(operationalDate) : dateStr;
+      const locObj = locations.find((l) => l.id === selectedEquipment?.location_id);
+      const typeObj = equipmentTypes.find((t) => t.id === selectedEquipment?.equipment_type_id);
+      const freqObj = frequencies.find((f) => f.id === Number(selectedFrequencyId));
 
-    if (isXRay) {
-      const xrayPhotos: { key: string; title: string; dataUrl: string }[] = [];
-      if (!isHidingMeasurements && photoDocs.tegangan) {
-        xrayPhotos.push({ key: 'tegangan', title: '1. Foto Tegangan', dataUrl: photoDocs.tegangan });
-      }
-      if (photoDocs.report) {
-        xrayPhotos.push({
-          key: 'report',
-          title: isHidingMeasurements ? '1. Foto Report' : '2. Foto Report',
-          dataUrl: photoDocs.report
-        });
-      }
-      if (!isHidingMeasurements && photoDocs.sinyal_gen_a) {
-        xrayPhotos.push({ key: 'sinyal_gen_a', title: '3. Foto Sinyal Gen A', dataUrl: photoDocs.sinyal_gen_a });
-      }
-      if (!isHidingMeasurements && photoDocs.sinyal_gen_b) {
-        xrayPhotos.push({ key: 'sinyal_gen_b', title: '4. Foto Sinyal Gen B', dataUrl: photoDocs.sinyal_gen_b });
-      }
-      if (photoDocs.bebersih && photoDocs.bebersih.length > 0) {
-        photoDocs.bebersih.forEach((url, idx) => {
-          xrayPhotos.push({
-            key: `bebersih_${idx}`,
-            title: isHidingMeasurements ? `2. Bebersih ${idx + 1}` : `5. Bebersih ${idx + 1}`,
-            dataUrl: url
-          });
-        });
-      }
+      const driveFolderPath = buildDriveFolderPath({
+        reportType: 'PREVENTIVE',
+        frequencyName: freqObj?.frequency_name || 'Harian',
+        operationalDate: operationalDate,
+        shift: shift,
+        equipmentType: typeObj?.name || 'EQUIPMENT',
+        locationName: locObj?.name || selectedEquipment.equipment_code,
+        equipmentName: selectedEquipment.name,
+      });
 
-      if (xrayPhotos.length > 0) {
-        // Save individual photos first
-        xrayPhotos.forEach((item, idx) => {
-          evidencesList.push({
-            id: Date.now() + idx,
-            file_path: item.dataUrl,
-            caption: item.title,
-          });
-        });
+      const newEntry: Omit<PreventiveEntry, 'id'> & { id?: number; folder_path?: string } = {
+        id: existingEntry?.id,
+        preventive_session_id: 101,
+        equipment_id: selectedEquipment.id,
+        checklist_frequency_id: Number(selectedFrequencyId),
+        view_type: isXRay ? viewType : undefined,
+        sequence: nextSequence,
+        submitted_at: timeString,
+        submitted_by_technician_ids: [1, 2],
+        notes: notes,
+        status: overallStatus,
+        checklist_results: resultsArray,
+        measurements: measurements,
+        evidences: evidencesList,
+        operational_date: operationalDate,
+        shift: shift as any,
+        period_key: currentPeriodKey,
+        folder_path: driveFolderPath,
+      };
 
-        try {
-          const collageUrl = await generatePhotoCollageUrl({
-            equipmentName: selectedEquipment.name,
-            equipmentCode: selectedEquipment.equipment_code,
-            serialNumber: selectedEquipment.serial_number,
-            date: finalDateStr,
-            shift: shift || 'Shift 1',
-            technicians: ['Technician Duty'],
-            photos: xrayPhotos,
-          });
-          evidencesList.push({
-            id: Date.now() + 1000,
-            file_path: collageUrl,
-            caption: 'Dokumentasi Maintenance X-Ray (Kolase)',
-          });
-
-          // Automatic download
-          const link = document.createElement('a');
-          link.href = collageUrl;
-          link.download = `Collage_${selectedEquipment.equipment_code}_${finalDateStr.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        } catch (err) {
-          console.error('Gagal membuat kolase XRay:', err);
-        }
-      }
-    } else {
-      const photos = photoDocs.bebersih || [];
-      if (photos.length > 0) {
-        // Save individual photos first
-        photos.forEach((url, idx) => {
-          evidencesList.push({
-            id: Date.now() + idx,
-            file_path: url,
-            caption: `Dokumentasi Bebersih ${idx + 1}`,
-          });
-        });
-
-        try {
-          const collageUrl = await generatePhotoCollageUrl({
-            equipmentName: selectedEquipment.name,
-            equipmentCode: selectedEquipment.equipment_code,
-            serialNumber: selectedEquipment.serial_number,
-            date: finalDateStr,
-            shift: shift || 'Shift 1',
-            technicians: ['Technician Duty'],
-            photos: photos.map((url, idx) => ({
-              key: `cleaning_${idx}`,
-              title: `Dokumentasi ${idx + 1}`,
-              dataUrl: url,
-            })),
-          });
-          evidencesList.push({
-            id: Date.now() + 1000,
-            file_path: collageUrl,
-            caption: 'Dokumentasi Kegiatan / Pembersihan (Kolase)',
-          });
-
-          // Automatic download
-          const link = document.createElement('a');
-          link.href = collageUrl;
-          link.download = `Collage_${selectedEquipment.equipment_code}_${finalDateStr.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        } catch (err) {
-          console.error('Gagal membuat kolase:', err);
-        }
-      }
+      await onSubmitEntry(newEntry);
+      setSuccessPopupInfo({
+        show: true,
+        typeName: selectedType?.code || 'EQUIPMENT',
+        eqName: selectedEquipment.name,
+      });
+      setIsMachineSelected(false);
+    } catch (err) {
+      console.error('Preventive submission error:', err);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    const locObj = locations.find((l) => l.id === selectedEquipment?.location_id);
-    const typeObj = equipmentTypes.find((t) => t.id === selectedEquipment?.equipment_type_id);
-    const freqObj = frequencies.find((f) => f.id === Number(selectedFrequencyId));
-
-    const driveFolderPath = buildDriveFolderPath({
-      reportType: 'PREVENTIVE',
-      frequencyName: freqObj?.frequency_name || 'Harian',
-      operationalDate: operationalDate,
-      shift: shift,
-      equipmentType: typeObj?.name || 'EQUIPMENT',
-      locationName: locObj?.name || selectedEquipment.equipment_code,
-      equipmentName: selectedEquipment.name,
-    });
-
-    const newEntry: Omit<PreventiveEntry, 'id'> & { folder_path?: string } = {
-      preventive_session_id: 101,
-      equipment_id: selectedEquipment.id,
-      checklist_frequency_id: Number(selectedFrequencyId),
-      view_type: isXRay ? viewType : undefined,
-      sequence: nextSequence,
-      submitted_at: timeString,
-      submitted_by_technician_ids: [1, 2],
-      notes: notes,
-      status: overallStatus,
-      checklist_results: resultsArray,
-      measurements: measurements,
-      evidences: evidencesList,
-      operational_date: operationalDate,
-      shift: shift as any,
-      period_key: currentPeriodKey,
-      folder_path: driveFolderPath,
-    };
-
-    onSubmitEntry(newEntry);
-    setSuccessPopupInfo({
-      show: true,
-      typeName: selectedType?.code || 'EQUIPMENT',
-      eqName: selectedEquipment.name,
-    });
-    setIsMachineSelected(false);
   };
 
   // Filtered & sorted Equipment List for Selection Grid
@@ -2099,14 +2110,23 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
               </button>
               <button
                 type="submit"
-                className={`w-full py-3 font-bold text-xs rounded-xl transition-all shadow-md cursor-pointer flex items-center justify-center gap-2 text-white ${
-                  existingEntry
-                    ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200'
-                    : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
+                disabled={isSubmitting}
+                className={`w-full py-3 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2 text-white disabled:opacity-60 disabled:cursor-not-allowed ${
+                  isSubmitting
+                    ? 'bg-slate-500 cursor-not-allowed shadow-none'
+                    : existingEntry
+                    ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200 cursor-pointer'
+                    : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200 cursor-pointer'
                 }`}
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>{existingEntry ? 'Update Data Laporan' : 'Kirim Laporan'}</span>
+                <span>
+                  {isSubmitting
+                    ? 'Menyimpan...'
+                    : existingEntry
+                    ? 'Update Data Laporan'
+                    : 'Kirim Laporan'}
+                </span>
               </button>
             </div>
           </div>
@@ -2151,14 +2171,23 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
                   </button>
                   <button
                     type="submit"
-                    className={`px-4 sm:px-5 py-2.5 font-bold text-xs rounded-xl transition-all shadow-md cursor-pointer flex items-center gap-1.5 text-white shrink-0 ${
-                      existingEntry
-                        ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200'
-                        : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
+                    disabled={isSubmitting}
+                    className={`px-4 sm:px-5 py-2.5 font-bold text-xs rounded-xl transition-all shadow-md flex items-center gap-1.5 text-white shrink-0 disabled:opacity-60 disabled:cursor-not-allowed ${
+                      isSubmitting
+                        ? 'bg-slate-500 cursor-not-allowed shadow-none'
+                        : existingEntry
+                        ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200 cursor-pointer'
+                        : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200 cursor-pointer'
                     }`}
                   >
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>{existingEntry ? 'Update Laporan' : 'Kirim Laporan'}</span>
+                    <span>
+                      {isSubmitting
+                        ? 'Menyimpan...'
+                        : existingEntry
+                        ? 'Update Laporan'
+                        : 'Kirim Laporan'}
+                    </span>
                   </button>
                 </>
               )}

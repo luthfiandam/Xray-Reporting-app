@@ -27,7 +27,7 @@ interface CorrectiveViewProps {
   equipments: Equipment[];
   equipmentTypes?: EquipmentType[];
   locations: Location[];
-  onAddCorrective: (report: Omit<CorrectiveReport, 'id'>) => void;
+  onAddCorrective: (report: Omit<CorrectiveReport, 'id'>) => void | Promise<void>;
   technicianNames: string[];
   shift?: string;
   operationalDate?: string;
@@ -44,6 +44,7 @@ export const CorrectiveView: React.FC<CorrectiveViewProps> = ({
   operationalDate = '',
 }) => {
   const [showForm, setShowForm] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Equipment Selection Split (Jenis Mesin -> Peralatan)
   const defaultTypeId = equipmentTypes[0]?.id || 1;
@@ -207,74 +208,83 @@ Hasil : ${data.resultText || 'Mesin sudah bisa digunakan dengan normal 🙏🏻'
 Notes : ${data.notes || '-'}`;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     if (!problemDescription.trim() || !actionTaken.trim()) {
       alert('Mohon isi deskripsi kerusakan dan tindakan perbaikan.');
       return;
     }
 
-    const eq = equipments.find((e) => e.id === Number(equipmentId));
-    const nowDate = new Date();
-    const dateStr = getLocalDateString(nowDate);
-    const code = `CR-${dateStr.replace(/-/g, '')}-${String(correctiveReports.length + 1).padStart(
-      3,
-      '0'
-    )}`;
+    setIsSubmitting(true);
+    try {
+      const eq = equipments.find((e) => e.id === Number(equipmentId));
+      const nowDate = new Date();
+      const dateStr = getLocalDateString(nowDate);
+      const code = `CR-${dateStr.replace(/-/g, '')}-${String(correctiveReports.length + 1).padStart(
+        3,
+        '0'
+      )}`;
 
-    const loc = locations.find((l) => l.id === eq?.location_id);
-    const eqType = equipmentTypes.find((t) => t.id === eq?.equipment_type_id);
+      const loc = locations.find((l) => l.id === eq?.location_id);
+      const eqType = equipmentTypes.find((t) => t.id === eq?.equipment_type_id);
 
-    const driveFolderPath = buildDriveFolderPath({
-      reportType: 'CORRECTIVE',
-      operationalDate: dateStr,
-      shift: shift,
-      equipmentType: eqType?.name || 'EQUIPMENT',
-      locationName: loc?.name || 'LOCATION',
-      equipmentName: eq?.name || 'Equipment',
-    });
+      const driveFolderPath = buildDriveFolderPath({
+        reportType: 'CORRECTIVE',
+        operationalDate: dateStr,
+        shift: shift,
+        equipmentType: eqType?.name || 'EQUIPMENT',
+        locationName: loc?.name || 'LOCATION',
+        equipmentName: eq?.name || 'Equipment',
+      });
 
-    const newReport: Omit<CorrectiveReport, 'id'> & { folder_path?: string } = {
-      corrective_code: code,
-      corrective_date: dateStr,
-      equipment_id: Number(equipmentId),
-      location_id: eq?.location_id || 1,
-      problem_description: problemDescription,
-      action_taken: actionTaken,
-      result: result,
-      result_text: resultText,
-      technicians: selectedTechs,
-      start_time: startTime,
-      end_time: endTime,
-      notes: notes,
-      created_by: selectedTechs.join(', '),
-      created_at: `${dateStr} ${startTime}`,
-      evidences: photos,
-      folder_path: driveFolderPath,
-    };
+      const newReport: Omit<CorrectiveReport, 'id'> & { folder_path?: string } = {
+        corrective_code: code,
+        corrective_date: dateStr,
+        equipment_id: Number(equipmentId),
+        location_id: eq?.location_id || 1,
+        problem_description: problemDescription,
+        action_taken: actionTaken,
+        result: result,
+        result_text: resultText,
+        technicians: selectedTechs,
+        start_time: startTime,
+        end_time: endTime,
+        notes: notes,
+        created_by: selectedTechs.join(', '),
+        created_at: `${dateStr} ${startTime}`,
+        evidences: photos,
+        folder_path: driveFolderPath,
+      };
 
-    onAddCorrective(newReport);
+      await onAddCorrective(newReport);
 
-    // Generate WhatsApp report text
-    const waText = buildWhatsAppText({
-      dateObj: nowDate,
-      startTime: startTime,
-      endTime: endTime,
-      technicians: selectedTechs,
-      equipmentName: eq?.name || 'Security Equipment',
-      problem: problemDescription,
-      action: actionTaken,
-      resultText: resultText,
-      notes: notes,
-    });
+      // Generate WhatsApp report text
+      const waText = buildWhatsAppText({
+        dateObj: nowDate,
+        startTime: startTime,
+        endTime: endTime,
+        technicians: selectedTechs,
+        equipmentName: eq?.name || 'Security Equipment',
+        problem: problemDescription,
+        action: actionTaken,
+        resultText: resultText,
+        notes: notes,
+      });
 
-    setGeneratedReportText(waText);
+      setGeneratedReportText(waText);
 
-    // Reset Form
-    setProblemDescription('');
-    setActionTaken('');
-    setPhotos([]);
-    setShowForm(false);
+      // Reset Form
+      setProblemDescription('');
+      setActionTaken('');
+      setPhotos([]);
+      setShowForm(false);
+    } catch (err) {
+      console.error('Corrective submit error:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleCopyWA = (text: string) => {
@@ -573,10 +583,15 @@ Notes : ${data.notes || '-'}`;
             </button>
             <button
               type="submit"
-              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-md shadow-blue-200 transition-all flex items-center gap-1.5"
+              disabled={isSubmitting}
+              className={`px-5 py-2.5 font-bold rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5 text-white disabled:opacity-60 disabled:cursor-not-allowed ${
+                isSubmitting
+                  ? 'bg-slate-500 cursor-not-allowed shadow-none'
+                  : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200 cursor-pointer'
+              }`}
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>Simpan &amp; Buat Laporan WA</span>
+              <span>{isSubmitting ? 'Menyimpan...' : 'Simpan & Buat Laporan WA'}</span>
             </button>
           </div>
         </form>
