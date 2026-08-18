@@ -70,7 +70,24 @@ export default function App() {
   const [checklistItems] = useState<ChecklistItem[]>(INITIAL_CHECKLIST_ITEMS);
 
   // Shift & Session State
-  const [currentSession, setCurrentSession] = useState<PreventiveSession>(INITIAL_PREVENTIVE_SESSION);
+  const [currentSession, setCurrentSession] = useState<PreventiveSession>(() => {
+    const op = getOperationalShift();
+    const defaultTechIds = getDefaultTechniciansForShift(INITIAL_TECHNICIANS, op.shift, op.operationalDate);
+    const defaultTechNames = defaultTechIds
+      .map((id) => INITIAL_TECHNICIANS.find((t) => t.id === id)?.name)
+      .filter(Boolean) as string[];
+
+    return {
+      id: 101,
+      operational_date: op.operationalDate,
+      shift: op.shift,
+      started_at: op.shift === 'Pagi' ? '07:00' : '19:00',
+      ended_at: op.shift === 'Pagi' ? '18:59' : '06:59',
+      status: 'active',
+      technician_ids: defaultTechIds.length > 0 ? defaultTechIds : [1, 2],
+      technician_names: defaultTechNames.length > 0 ? defaultTechNames : ['Luthfi', 'Zaky'],
+    };
+  });
   const [preventiveEntries, setPreventiveEntries] = useState<PreventiveEntry[]>(() => {
     try {
       const saved = localStorage.getItem('nti_preventive_entries');
@@ -177,7 +194,7 @@ export default function App() {
         (r) => (r.dataset_id || 'default') === currentDs && !r.synced
       );
 
-      console.log(`[CloudSync] Pending preventive: ${localPrev.length}, corrective: ${localCorr.length}`);
+      console.log(`[CloudSync] Pending: preventive=${localPrev.length}, corrective=${localCorr.length}`);
 
       for (const entry of localPrev) {
         try {
@@ -222,22 +239,13 @@ export default function App() {
         fetchCorrectiveRecords(undefined, undefined, currentDs),
       ]);
 
-      console.log('[CloudSync] Fetch completed');
+      const cloudPrevCount = prevRes.success && Array.isArray(prevRes.data) ? prevRes.data.length : 0;
+      const cloudCorrCount = corrRes.success && Array.isArray(corrRes.data) ? corrRes.data.length : 0;
+      console.log(`[CloudSync] Fetch completed: preventive=${cloudPrevCount}, corrective=${cloudCorrCount}`);
 
+      let latestMergedPrev: PreventiveEntry[] = [];
       if (prevRes.success && Array.isArray(prevRes.data)) {
         const cloudRecords = prevRes.data;
-        console.log(`[CloudSync] Preventive fetched: ${cloudRecords.length}`);
-
-        // Diagnostic log rejections
-        const activeCtx = {
-          datasetId: currentDs,
-          operationalDate: currentSession.operational_date,
-          shift: currentSession.shift,
-        };
-        cloudRecords.forEach((rec) => {
-          isRecordInActiveContext(rec, activeCtx, true);
-        });
-
         setPreventiveEntries((localEntries) => {
           const otherDsEntries = localEntries.filter((e) => (e.dataset_id || 'default') !== currentDs);
           const currentDsEntries = localEntries.filter((e) => (e.dataset_id || 'default') === currentDs);
@@ -269,8 +277,11 @@ export default function App() {
             }
           }
           const deduplicated = dedupePreventiveRecords(merged);
+          latestMergedPrev = deduplicated;
           return [...otherDsEntries, ...deduplicated];
         });
+      } else {
+        latestMergedPrev = preventiveEntriesRef.current.filter((e) => (e.dataset_id || 'default') === currentDs);
       }
 
       if (corrRes.success && Array.isArray(corrRes.data)) {
@@ -300,6 +311,19 @@ export default function App() {
           return [...otherDsReports, ...merged];
         });
       }
+
+      const activeCtx = {
+        datasetId: currentDs,
+        operationalDate: currentSession.operational_date,
+        shift: currentSession.shift,
+      };
+      const activePrev = getActivePreventiveRecords(
+        latestMergedPrev.length > 0 ? latestMergedPrev : preventiveEntriesRef.current,
+        activeCtx
+      );
+      const harianCount = activePrev.filter((e) => Number(e.checklist_frequency_id) === 1).length;
+      const mingguanCount = activePrev.filter((e) => Number(e.checklist_frequency_id) === 2).length;
+      console.log(`[CloudSync] Active: Harian=${harianCount}, Mingguan=${mingguanCount}`);
 
       setSyncStatus('synced');
       setLastSyncTime(new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
@@ -416,9 +440,11 @@ export default function App() {
     // 2. Asynchronously sync to Google Sheets & Drive
     if (isCloudConfigured()) {
       setSyncStatus('syncing');
+      console.log('[CloudSync] Saving Preventive...');
       try {
         const res = await savePreventiveRecord(fullEntry);
         if (res.success && res.data) {
+          console.log('[CloudSync] Preventive saved successfully');
           const cloudRecord = res.data;
           setPreventiveEntries((prev) => {
             const idx = prev.findIndex(
@@ -488,9 +514,11 @@ export default function App() {
     // 2. Asynchronously sync to Google Sheets & Drive
     if (isCloudConfigured()) {
       setSyncStatus('syncing');
+      console.log('[CloudSync] Saving Corrective...');
       try {
         const res = await saveCorrectiveRecord(newReport);
         if (res.success && res.data) {
+          console.log('[CloudSync] Corrective saved successfully');
           const cloudRecord = res.data;
           setCorrectiveReports((prev) => {
             const idx = prev.findIndex(
@@ -588,14 +616,6 @@ export default function App() {
   const activePreventiveEntries = getActivePreventiveRecords(preventiveEntries, activeContext);
   const activeCorrectiveReports = getActiveCorrectiveReports(correctiveReports, activeContext);
 
-  useEffect(() => {
-    const harianActiveCount = activePreventiveEntries.filter((e) => Number(e.checklist_frequency_id) === 1).length;
-    const mingguanActiveCount = activePreventiveEntries.filter((e) => Number(e.checklist_frequency_id) === 2).length;
-    console.log(`[CloudSync] Active after context filter: ${activePreventiveEntries.length}`);
-    console.log(`[CloudSync] Harian active: ${harianActiveCount}`);
-    console.log(`[CloudSync] Mingguan active: ${mingguanActiveCount}`);
-  }, [activePreventiveEntries]);
-
   // Structured Report Builder Data
   const structuredReportData = buildStructuredReportData(
     currentSession,
@@ -668,6 +688,7 @@ export default function App() {
               checklistItems={checklistItems}
               preventiveEntries={activePreventiveEntries}
               preSelectedEquipmentId={preSelectedEquipmentId}
+              onClearPreSelectedEquipmentId={() => setPreSelectedEquipmentId(null)}
               onSubmitEntry={handleSubmitPreventiveEntry}
               onBackToDashboard={() => setActiveTab('dashboard')}
               role={role}

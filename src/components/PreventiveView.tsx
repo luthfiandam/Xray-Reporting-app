@@ -42,6 +42,7 @@ import {
 import { generatePhotoCollageUrl } from '../utils/collageService';
 import { getPeriodKey } from '../utils/periodUtils';
 import { normalizeShift } from '../utils/contextFilter';
+import { Toast } from './Toast';
 
 interface PreventiveViewProps {
   equipments: Equipment[];
@@ -51,6 +52,7 @@ interface PreventiveViewProps {
   checklistItems: ChecklistItem[];
   preventiveEntries: PreventiveEntry[];
   preSelectedEquipmentId?: number | null;
+  onClearPreSelectedEquipmentId?: () => void;
   onSubmitEntry: (entry: Omit<PreventiveEntry, 'id'>) => void | Promise<void>;
   onBackToDashboard: () => void;
   role: Role;
@@ -74,6 +76,7 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
   checklistItems,
   preventiveEntries,
   preSelectedEquipmentId,
+  onClearPreSelectedEquipmentId,
   onSubmitEntry,
   onBackToDashboard,
   operationalDate = '',
@@ -115,11 +118,10 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
   const [isGeneratingCollage, setIsGeneratingCollage] = useState(false);
   const [showCollageModal, setShowCollageModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [successPopupInfo, setSuccessPopupInfo] = useState<{
+  const [toastNotification, setToastNotification] = useState<{
     show: boolean;
-    typeName: string;
-    eqName: string;
-  }>({ show: false, typeName: '', eqName: '' });
+    message: string;
+  }>({ show: false, message: '' });
 
   // Auto scroll to top when machine form opens
   useEffect(() => {
@@ -138,16 +140,6 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
       });
     }
   }, [mobileStep, isMachineSelected]);
-
-  // Auto close success popup after 2.5 - 3 seconds
-  useEffect(() => {
-    if (successPopupInfo.show) {
-      const timer = setTimeout(() => {
-        setSuccessPopupInfo({ show: false, typeName: '', eqName: '' });
-      }, 2500);
-      return () => clearTimeout(timer);
-    }
-  }, [successPopupInfo.show]);
 
   // Measurements state for X-Ray
   const [genAMeasurement, setGenAMeasurement] = useState<MeasurementValue>({
@@ -178,8 +170,11 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
     if (preSelectedEquipmentId) {
       setSelectedEquipmentId(preSelectedEquipmentId);
       setIsMachineSelected(true);
+      if (onClearPreSelectedEquipmentId) {
+        onClearPreSelectedEquipmentId();
+      }
     }
-  }, [preSelectedEquipmentId]);
+  }, [preSelectedEquipmentId, onClearPreSelectedEquipmentId]);
 
   // Find selected equipment and type
   const selectedEquipment = equipments.find((e) => e.id === Number(selectedEquipmentId));
@@ -755,13 +750,20 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
         folder_path: driveFolderPath,
       };
 
+      const isEdit = Boolean(existingEntry);
       await onSubmitEntry(newEntry);
-      setSuccessPopupInfo({
-        show: true,
-        typeName: selectedType?.code || 'EQUIPMENT',
-        eqName: selectedEquipment.name,
-      });
+
+      // Reset form states & return to equipment list
       setIsMachineSelected(false);
+      setSelectedEquipmentId(null);
+      setMobileStep(1);
+      setPhotoDocs({ bebersih: [] });
+
+      // Trigger lightweight top toast notification
+      setToastNotification({
+        show: true,
+        message: isEdit ? 'Laporan berhasil diperbarui' : 'Laporan berhasil disimpan',
+      });
     } catch (err) {
       console.error('Preventive submission error:', err);
     } finally {
@@ -1295,32 +1297,12 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
           </div>
         )}
 
-        {/* SUCCESS POPUP MODAL */}
-        {successPopupInfo.show && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-            <div className="bg-white rounded-2xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl border border-slate-100">
-              <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-base font-black text-slate-900">Pemeriksaan Berhasil Disimpan</h3>
-                <p className="text-xs font-bold text-blue-600 uppercase mt-1">
-                  {successPopupInfo.typeName} - {successPopupInfo.eqName}
-                </p>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Data laporan preventive berhasil dimasukkan ke sistem.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSuccessPopupInfo({ show: false, typeName: '', eqName: '' })}
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
-              >
-                Tutup
-              </button>
-            </div>
-          </div>
-        )}
+        {/* TOP TOAST NOTIFICATION */}
+        <Toast
+          show={toastNotification.show}
+          message={toastNotification.message}
+          onClose={() => setToastNotification({ show: false, message: '' })}
+        />
       </div>
     );
   }
@@ -2196,32 +2178,12 @@ export const PreventiveView: React.FC<PreventiveViewProps> = ({
         </div>
       </form>
 
-      {/* SUCCESS POPUP MODAL */}
-      {successPopupInfo.show && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl border border-slate-100">
-            <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-base font-black text-slate-900">Pemeriksaan Berhasil Disimpan</h3>
-              <p className="text-xs font-bold text-blue-600 uppercase mt-1">
-                {successPopupInfo.typeName} - {successPopupInfo.eqName}
-              </p>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Data laporan preventive berhasil dimasukkan ke sistem.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSuccessPopupInfo({ show: false, typeName: '', eqName: '' })}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
-            >
-              Tutup
-            </button>
-          </div>
-        </div>
-      )}
+      {/* TOP TOAST NOTIFICATION */}
+      <Toast
+        show={toastNotification.show}
+        message={toastNotification.message}
+        onClose={() => setToastNotification({ show: false, message: '' })}
+      />
 
       {/* PHOTO COLLAGE MODAL FOR WHATSAPP */}
       {showCollageModal && collageUrl && (
